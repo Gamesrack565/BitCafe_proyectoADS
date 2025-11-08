@@ -1,0 +1,74 @@
+
+from fastapi import APIRouter, HTTPException, status, Depends, Request
+from sqlmodel import select
+from Servicios.base_Datos import SessionDep
+from Servicios.seguridad import get_current_user
+from Servicios.mercado_pago_s import crear_preferencia_de_pago
+from Modelos import modelos
+from Esquemas import esquemas
+
+router = APIRouter(prefix="/pagos", tags=["Pagos (Mercado Pago)"])
+
+"""
+Crea una preferencia de pago en Mercado Pago para un pedido existente.
+"""
+
+@router.post("/crear-preferencia/{pedido_id}", response_model=dict)
+def crear_pago_pedido(pedido_id: int, session: SessionDep, current_user: modelos.Usuario = Depends(get_current_user)):
+    # 1. Busca el pedido en tu BD
+    db_pedido = session.get(modelos.Pedido, pedido_id)
+    if not db_pedido:
+        raise HTTPException(status_code=404, detail="Pedido no encontrado")
+        
+    #2. Verifica que el pedido pertenezca al usuario.
+    if db_pedido.id_usuario != current_user.id_usuario:
+        raise HTTPException(status_code=403, detail="No autorizado")
+        
+    #3. Verifica que el pedido no esté pagado ya.
+    if db_pedido.estado_pago == "pagado":
+        raise HTTPException(status_code=400, detail="Este pedido ya fue pagado")
+
+    #4. Llama al servicio de Mercado Pago para crear la preferencia de pago.
+    url_pago = crear_preferencia_de_pago(db_pedido.model_dump(), pedido_id)
+    
+    if not url_pago:
+        raise HTTPException(status_code=500, detail="Error al crear la preferencia de pago")
+
+    return {"init_point": url_pago}
+
+
+
+"""
+Endpoint PÚBLICO que Mercado Pago usará para notificarte
+sobre el estado de un pago.
+NO TERMINADO, NI PROBADO.
+"""
+@router.post("/webhook")
+async def recibir_webhook_mercadopago(request: Request, session: SessionDep):
+
+    body = await request.json()
+    action = body.get("action")
+    
+    
+    if action == "payment.updated":
+        payment_id = body["data"]["id"]
+        #(Aquí, usarías el SDK de MP para obtener los detalles de ese pago)
+        #resultado_pago = sdk.payment().get(payment_id)
+        
+        #Obtenemos el ID de nuestro pedido que guardamos
+        #external_reference = resultado_pago["response"]["external_reference"]
+        #estado = resultado_pago["response"]["status"]
+        
+        #--- Simulación 
+        print(f"Notificación recibida para pago: {payment_id}")
+        
+        # if estado == "approved":
+        #    db_pedido = session.get(modelos.Pedido, int(external_reference))
+        #    if db_pedido:
+        #        db_pedido.estado_pago = "pagado"
+        #        db_pedido.estado_pedido = "preparacion" # O el estado que quieras
+        #        session.add(db_pedido)
+        #        session.commit()
+        #        print(f"Pedido {external_reference} actualizado a PAGADO")
+
+    return {"status": "ok"}

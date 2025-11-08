@@ -1,0 +1,11 @@
+CATEGORIAS: 
+Al eliminar una categoría se debe regresar al id anterior, ya que si se crea otra categoría el id aumenta como si no se hubiera borrado nada
+
+Productos:
+Se debería agregar borrar producto
+
+Carrito:
+Si se agregan una cantidad que sobrepasa el stock, no lo revisa y solo lo agrega
+Al parecer el id_item que da el carrito, cuando un nuevo usuario agrega algo el id aumenta respecto a todos los ítems agregados de todos los carritos
+Si se elimina un item del carrito, el próximo id sigue aumentando como si aun estuviera el otro 
+Al eliminar el item, no da ningún alerta
