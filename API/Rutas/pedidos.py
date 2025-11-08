@@ -78,7 +78,7 @@ def crear_nuevo_pedido_carrito(
             #Lanza un error 404.
             raise HTTPException(status_code=404, detail=f"Producto con id {item.id_producto} no encontrado. No se puede completar el pedido.")
         
-        # (Aquí añadirías lógica de stock si quisieras)
+        # (Logica de stock - aun por revisar
         # if item.producto.maneja_stock and item.producto.cantidad_stock < item.cantidad:
         #     raise HTTPException(status_code=400, detail=f"Stock insuficiente para {item.producto.nombre}")
         
@@ -101,7 +101,7 @@ def crear_nuevo_pedido_carrito(
         #Añade el 'PedidoItem' recien creado a la lista temporal.
         items_para_db.append(nuevo_item_pedido)
         
-        # (Opcional: Descontar stock)
+        # (Descontar - stock - aun por revisar
         # if item.producto.maneja_stock:
         #     item.producto.cantidad_stock -= item.cantidad
         #     session.add(item.producto)
