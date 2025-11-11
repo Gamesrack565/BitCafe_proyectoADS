@@ -1,28 +1,18 @@
 # vista_pedidos.py
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QListWidget, QPushButton
+from PyQt6.QtWidgets import QLabel, QListWidget, QPushButton
 import requests
+from .base_layout import BaseLayout
 
-class VentanaPedidos(QWidget):
+class VentanaPedidos(BaseLayout):
     def __init__(self):
-        super().__init__()
-        self.setWindowTitle("Pedidos Entrantes - BitCafé")
-        self.setGeometry(200, 200, 500, 400)
-
-        layout = QVBoxLayout()
-
-        self.titulo = QLabel("📦 Pedidos nuevos")
-        self.titulo.setStyleSheet("font-size: 16px; font-weight: bold;")
-        layout.addWidget(self.titulo)
+        super().__init__("Pedidos")
 
         self.lista_pedidos = QListWidget()
-        layout.addWidget(self.lista_pedidos)
+        self.body.addWidget(self.lista_pedidos)
 
-        # Cambiado a atributo de clase
         self.btn_actualizar = QPushButton("🔄 Actualizar pedidos")
-        self.btn_actualizar.clicked.connect(self.cargar_pedidos)
-        layout.addWidget(self.btn_actualizar)
+        self.body.addWidget(self.btn_actualizar)
 
-        self.setLayout(layout)
         self.cargar_pedidos()
 
     def cargar_pedidos(self):
