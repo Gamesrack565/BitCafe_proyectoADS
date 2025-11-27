@@ -1,3 +1,7 @@
+#BITCAFE
+#VERSION 1.1 
+#By: Angel A. Higuera
+
 
 from fastapi import APIRouter, HTTPException, status, Depends, Request
 from sqlmodel import select
@@ -15,26 +19,40 @@ Crea una preferencia de pago en Mercado Pago para un pedido existente.
 
 @router.post("/crear-preferencia/{pedido_id}", response_model=dict)
 def crear_pago_pedido(pedido_id: int, session: SessionDep, current_user: modelos.Usuario = Depends(get_current_user)):
-    # 1. Busca el pedido en tu BD
+    # 1. Busca el pedido
     db_pedido = session.get(modelos.Pedido, pedido_id)
     if not db_pedido:
         raise HTTPException(status_code=404, detail="Pedido no encontrado")
         
-    #2. Verifica que el pedido pertenezca al usuario.
+    # 2. Verifica usuario
     if db_pedido.id_usuario != current_user.id_usuario:
         raise HTTPException(status_code=403, detail="No autorizado")
         
-    #3. Verifica que el pedido no esté pagado ya.
+    # 3. Verifica pago previo
     if db_pedido.estado_pago == "pagado":
         raise HTTPException(status_code=400, detail="Este pedido ya fue pagado")
 
-    #4. Llama al servicio de Mercado Pago para crear la preferencia de pago.
-    url_pago = crear_preferencia_de_pago(db_pedido.model_dump(), pedido_id)
+    # 4. Llama al servicio
+    respuesta_mp = crear_preferencia_de_pago(db_pedido.model_dump(), pedido_id)
     
-    if not url_pago:
+    if not respuesta_mp:
         raise HTTPException(status_code=500, detail="Error al crear la preferencia de pago")
 
-    return {"init_point": url_pago}
+    # --- CORRECCIÓN DE SEGURIDAD ---
+    # A veces el servicio devuelve el diccionario completo de MP, a veces el string.
+    # Aquí nos aseguramos de mandar SOLO LA URL.
+    url_final = ""
+    
+    if isinstance(respuesta_mp, dict):
+        # Intentamos obtener init_point (producción) o sandbox_init_point (pruebas)
+        url_final = respuesta_mp.get("init_point") or respuesta_mp.get("sandbox_init_point")
+    elif isinstance(respuesta_mp, str):
+        url_final = respuesta_mp
+    
+    if not url_final:
+        raise HTTPException(status_code=500, detail="No se encontró el link 'init_point' en la respuesta de MP")
+
+    return {"init_point": url_final}
 
 
 

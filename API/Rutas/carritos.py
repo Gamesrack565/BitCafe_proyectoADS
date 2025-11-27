@@ -1,5 +1,5 @@
 #BITCAFE
-#VERSION 1.0
+#VERSION 1.2
 #By: Angel A. Higuera
 
 #Librerías y módulos
@@ -116,35 +116,35 @@ def anadir_producto_al_carrito(
     )
     #Ejecuta la consulta y obtiene el primer resultado.
     item_existente = session.exec(statement).first()
+
+    cantidad_a_agregar = item_in.cantidad
     
-    #Si se encontró un 'CarritoItem' (el producto ya estaba en el carrito).
+    cantidad_actual_en_carrito = item_existente.cantidad if item_existente else 0
+    cantidad_total_deseada = cantidad_actual_en_carrito + cantidad_a_agregar
+
+    # Si el producto maneja stock Y la cantidad deseada supera lo que hay
+    if producto.maneja_stock and cantidad_total_deseada > producto.cantidad_stock:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail=f"Stock insuficiente. Solo quedan {producto.cantidad_stock} unidades y quieres llevar {cantidad_total_deseada}."
+        )
+    # ---------------------------------------
+
     if item_existente:
-        #Si ya existe, actualizamos la cantidad
-        #Suma la cantidad nueva a la cantidad que ya existía.
         item_existente.cantidad += item_in.cantidad
-        #Si se enviaron notas nuevas en la solicitud.
         if item_in.notas:
-            #Actualiza las notas del item existente (sobrescribe las anteriores).
             item_existente.notas = item_in.notas
-        #Añade el item modificado a la sesión.
         session.add(item_existente)
-    #Si 'item_existente' es None (el producto no estaba en el carrito).
     else:
-        #Si no existe, creamos un nuevo CarritoItem
-        #Crea una nueva instancia del modelo 'CarritoItem'.
         nuevo_item = modelos.CarritoItem(
             id_carrito=carrito.id_carrito,
             id_producto=item_in.id_producto,
             cantidad=item_in.cantidad,
             notas=item_in.notas
         )
-        #Añade el nuevo item a la sesión.
         session.add(nuevo_item)
         
-    #Guarda los cambios (ya sea la actualización o la creación) en la base de datos.
     session.commit()
-    
-    #Devolvemos el carrito completo actualizado
     return dame_mi_carrito(session, current_user)
 
 
@@ -159,73 +159,68 @@ def actualizar_item_carrito(
     session: SessionDep,
     current_user: modelos.Usuario = Depends(get_current_user)
 ):
-    #1. Obtenemos el item
-    #Busca el CarritoItem específico por su clave primaria.
+    # 1. Obtenemos el item
     db_item = session.get(modelos.CarritoItem, item_id)
-    #Si no se encuentra ese CarritoItem en la BD.
     if not db_item:
-        #Lanza un error 404.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item del carrito no encontrado")
         
-    #2. COMPROBACIÓN DE SEGURIDAD
-    #Verificamos que el item pertenezca al carrito del usuario actual.
-    #Compara el id_carrito del item con el id_carrito del usuario que hace la petición.
+    # 2. Seguridad
     if db_item.id_carrito != current_user.carrito.id_carrito:
-        #Si no coinciden, lanza un error 403 (Prohibido), el usuario no puede modificar items de otros carritos.
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acción no permitida")
         
-    #3. Actualizamos los datos
-    #Convierte los datos de entrada a un diccionario, excluyendo campos no enviados (unset).
+    # 3. Actualizamos
     update_data = item_update.model_dump(exclude_unset=True)
-    #Si el diccionario está vacío (el cliente envió un JSON vacío {}).
     if not update_data:
-        #Lanza un error 400 (Mala Petición).
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No hay datos para actualizar")
 
-    #Itera sobre los datos enviados (ej. "cantidad", "notas").
+    #--- VALIDACIÓN DE STOCK EN PATCH (NUEVO) ---
+    #Si el usuario está intentando actualizar la cantidad
+    if "cantidad" in update_data:
+        nueva_cantidad = update_data["cantidad"]
+        #Obtenemos el producto original para ver su stock
+        producto = db_item.producto #Ya debería estar cargado por la relación, o lo buscamos
+        if not producto:
+             producto = session.get(modelos.Producto, db_item.id_producto)
+
+        if producto.maneja_stock and nueva_cantidad > producto.cantidad_stock:
+             raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, 
+                detail=f"Stock insuficiente. No puedes actualizar a {nueva_cantidad} unidades porque solo hay {producto.cantidad_stock}."
+            )
+    # --------------------------------------------
+
     for key, value in update_data.items():
-        #Actualiza el campo (key) en el objeto de la BD (db_item) con el nuevo 'value'.
         setattr(db_item, key, value)
         
-    #Añade el objeto modificado a la sesión.
     session.add(db_item)
-    #Guarda los cambios en la BD.
     session.commit()
-    #Refresca el objeto desde la BD para confirmar los cambios.
     session.refresh(db_item)
     
-    #Devuelve el 'CarritoItem' ya actualizado.
     return db_item
-
 
 
 """
 Elimina un item del carrito.
 """
 
-@router.delete("/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+# --- CORRECCIÓN: ALERTA AL ELIMINAR ---
+# Cambiamos el status 204 (No Content) por 200 (OK) para poder devolver un JSON
+@router.delete("/items/{item_id}", status_code=status.HTTP_200_OK)
 def remover_carrito_item(
     item_id: int,
     session: SessionDep,
     current_user: modelos.Usuario = Depends(get_current_user)
 ):
-    #1. Obtenemos el item
-    #Busca el CarritoItem por su ID.
     db_item = session.get(modelos.CarritoItem, item_id)
-    #Si el item no se encuentra,
     if not db_item:
-        #Termina
-        return
+        # Si no existe, retornamos mensaje igual para no dar error feo
+        return {"mensaje": "El item no existía o ya fue eliminado"}
         
-    #2. COMPROBACI0N DE SEGURIDAD
-    #Verifica que el item pertenezca al carrito del usuario actual.
     if db_item.id_carrito != current_user.carrito.id_carrito:
-        #Si no, lanza un error 403 (Prohibido).
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acción no permitida")
         
-    #3. Eliminamos
-    #Marca el objeto db_item para ser eliminado de la BD.
     session.delete(db_item)
-    #Ejecuta la eliminación en la BD.
     session.commit()
-    return
+    
+    # Devolvemos un mensaje JSON
+    return {"mensaje": "Producto eliminado del carrito correctamente"}

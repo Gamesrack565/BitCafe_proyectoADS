@@ -1,22 +1,27 @@
 #BITCAFE
-#VERSION 1.0
+#VERSION 1.2
 #By: Angel A. Higuera
 
 #Librerías y módulos
-#Importa las clases de FastAPI: APIRouter, HTTPException, status.
-from fastapi import APIRouter, HTTPException, status
-#Importa 'joinedload' para optimizar consultas cargando relaciones (JOINs).
-from sqlalchemy.orm import joinedload
-#Importa la funcion 'select' de SQLModel para crear consultas.
-from sqlmodel import select
-#Importa el tipo 'List' para las definiciones de modelos de respuesta.
+import uuid
+import os
+import shutil
+from decimal import Decimal
 from typing import List
-#Importa la dependencia 'SessionDep' para la sesion de BD.
+
+#Importa las clases de FastAPI
+from fastapi import APIRouter, HTTPException, status, File, UploadFile, Form
+
+#Importas de SQLAlchemy y SQLModel
+from sqlalchemy.orm import joinedload
+from sqlmodel import select
+
+#Importa dependencias y modelos propios
 from Servicios.base_Datos import SessionDep
-#Importa el modulo de modelos de la BD (tablas).
 from Modelos import modelos
-#Importa el modulo de esquemas (Pydantic).
 from Esquemas import esquemas
+
+
 
 #Crea una nueva instancia de APIRouter, definiendo el prefijo y la etiqueta.
 router = APIRouter(prefix="/productos", tags=["Productos"])
@@ -26,22 +31,63 @@ router = APIRouter(prefix="/productos", tags=["Productos"])
 @router.post("/", 
              response_model=esquemas.ProductoLecturaConCategoria,
              status_code=status.HTTP_201_CREATED)
-def crear_producto(producto_in: esquemas.ProductoCreacion, session: SessionDep):
-    #Comprueba si se proporciono un 'id_categoria' en la solicitud.
-    if producto_in.id_categoria:
-        #Busca la categoria en la BD usando el ID proporcionado.
-        categoria = session.get(modelos.Categoria, producto_in.id_categoria)
-        #Si no se encuentra la categoria.
-        if not categoria:
-            raise HTTPException(status_code=404, detail="Categoría no encontrada")
-        
+def crear_producto(
 
-    db_producto = modelos.Producto.model_validate(producto_in)
-    session.add(db_producto)
+    session: SessionDep,
+
+    # Ya no usamos "producto_in: esquemas.ProductoCreacion" como Body JSON.
+    # Ahora definimos los campos uno por uno como Formulario:
+    nombre: str = Form(...),
+    descripcion: str = Form(None),
+    precio: Decimal = Form(...),
+    esta_disponible: bool = Form(True),
+    id_categoria: int = Form(...),
+    maneja_stock: bool = Form(False),
+    cantidad_stock: int = Form(0),
+    # AQUÍ RECIBIMOS EL ARCHIVO
+    imagen: UploadFile = File(None), 
+    
+):
+    # 1. Validar categoría
+    categoria = session.get(modelos.Categoria, id_categoria)
+    if not categoria:
+        raise HTTPException(status_code=404, detail="Categoría no encontrada")
+
+    # 2. Procesar la imagen (Si el usuario subió una)
+    url_imagen_final = None
+    
+    if imagen:
+        # Generamos un nombre único para que no se sobreescriban fotos con el mismo nombre
+        # Ej: "cafe.jpg" se convierte en "a3b1-42c1-cafe.jpg"
+        nombre_archivo_unico = f"{uuid.uuid4()}_{imagen.filename}"
+        ruta_guardado = f"static_images/{nombre_archivo_unico}"
+        
+        # Guardamos el archivo físico en la carpeta
+        with open(ruta_guardado, "wb") as buffer:
+            shutil.copyfileobj(imagen.file, buffer)
+            
+        # Creamos la URL que guardaremos en la BD
+        # Esta URL apunta al "mount" que hicimos en main.py
+        url_imagen_final = f"imagenes/{nombre_archivo_unico}"
+
+    # 3. Crear el objeto Producto
+    nuevo_producto = modelos.Producto(
+        nombre=nombre,
+        descripcion=descripcion,
+        precio=precio,
+        esta_disponible=esta_disponible,
+        id_categoria=id_categoria,
+        maneja_stock=maneja_stock,
+        cantidad_stock=cantidad_stock,
+        url_imagen=url_imagen_final # <--- AQUÍ GUARDAMOS LA RUTA
+    )
+
+    session.add(nuevo_producto)
     session.commit()
-    session.refresh(db_producto)
-    session.refresh(db_producto, attribute_names=["categoria"])
-    return db_producto
+    session.refresh(nuevo_producto)
+    session.refresh(nuevo_producto, attribute_names=["categoria"])
+    
+    return nuevo_producto
 
 
 @router.get("/", response_model=List[esquemas.ProductoLecturaConCategoria])
@@ -110,3 +156,20 @@ def actualizar_producto(producto_id: int, producto_data: esquemas.ProductoActual
     
     #Devuelve el producto actualizado.
     return db_producto
+
+
+@router.delete("/{producto_id}", status_code=status.HTTP_204_NO_CONTENT)
+def eliminar_producto(producto_id: int, session: SessionDep):
+    # 1. Buscar el producto
+    producto = session.get(modelos.Producto, producto_id)
+    
+    if not producto:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Producto no encontrado")
+    
+    # 2. Validar si está en carritos o pedidos (Opcional pero recomendado)
+    # Si intentas borrar algo que ya se vendió, SQL lanzará error si no tienes 'cascade' configurado.
+    # Por ahora, confiamos en la eliminación simple:
+    
+    session.delete(producto)
+    session.commit()
+    return

@@ -1,261 +1,250 @@
 #BITCAFE
-#VERSION 1.0
+#VERSION 2.3 DIVIDIDO PARA AHORA TENER CAJA Y CLIENTE
 #By: Angel A. Higuera
 
-#Librerías y módulos
-#Importa las clases de FastAPI: APIRouter, HTTPException, status y Depends.
+#Librerías y modulos
+#Importa las clases y funciones principales de FastAPI.
 from fastapi import APIRouter, HTTPException, status, Depends
-#Importa la funcion 'select' de SQLModel para crear consultas.
+#Importa la funcion 'select' de SQLModel para consultas.
 from sqlmodel import select
-#Importa 'joinedload' para optimizar consultas cargando relaciones (JOINs).
+#Importa 'joinedload' de SQLAlchemy para cargar relaciones (Eager Loading).
 from sqlalchemy.orm import joinedload
-#Importa el tipo 'List' para las definiciones de modelos.
-from typing import List#, Optional
-#Importa 'uuid' para generar identificadores unicos (para los numeros de orden).
+#Importa clases para manejo de fechas y horas.
+from datetime import datetime, timedelta 
+#Importa el tipo List para tipado estatico.
+from typing import List
+#Importa la libreria uuid para generar identificadores unicos.
 import uuid
-#Importa la dependencia de sesión de la base de datos ('SessionDep').
+
+#Importa la dependencia 'SessionDep' para la sesion de BD.
 from Servicios.base_Datos import SessionDep
-#Importa la función 'get_current_user' para proteger los endpoints.
+#Importa la funcion de seguridad para obtener el usuario actual.
 from Servicios.seguridad import get_current_user
-#Importa las enumeraciones de EstadoPedido y UserRole.
+#Importa las enumeraciones de estados y roles.
 from Servicios.numeraciones import EstadoPedido, UserRole 
-#Importa los modelos de la base de datos (tablas).
+#Importa los modelos de la base de datos.
 from Modelos import modelos
-#Importa los esquemas Pydantic/SQLModel (para entrada/salida de API).
+#Importa los esquemas de datos (Pydantic).
 from Esquemas import esquemas
 
-#Crea una instancia de APIRouter, definiendo que todas las rutas comienzan con /pedidos.
-router = APIRouter(prefix="/pedidos", tags=["Pedidos (Protegido)"])
+#Crea una instancia del enrutador para pedidos de cliente.
+router = APIRouter(prefix="/pedidos", tags=["Pedidos (Cliente)"])
+
+# --- FUNCIÓN AUXILIAR ---
+def actualizar_automaticamente_pendientes(session: SessionDep):
+    """
+    Revisa si los pedidos pendientes ya cumplieron su tiempo de espera
+    y los pasa a PREPARACIÓN automáticamente.
+    """
+    #Crea una consulta para buscar pedidos en estado 'PENDIENTE'.
+    statement = select(modelos.Pedido).where(modelos.Pedido.estado_pedido == EstadoPedido.PENDIENTE)
+    #Ejecuta la consulta y obtiene todos los pedidos pendientes.
+    pedidos_pendientes = session.exec(statement).all()
+    
+    #Obtiene la fecha y hora actual.
+    ahora = datetime.now()
+    #Bandera para saber si hubo cambios y hacer commit al final.
+    cambios_realizados = False
+    
+    #Itera sobre cada pedido pendiente encontrado.
+    for pedido in pedidos_pendientes:
+        #Calcula el tiempo transcurrido desde la creacion del pedido.
+        tiempo_transcurrido = ahora - pedido.fecha_creacion
+        #Si han pasado mas de 120 segundos (2 minutos de buffer).
+        if tiempo_transcurrido.total_seconds() > 120:
+            #Cambia el estado del pedido a 'PREPARACION'.
+            pedido.estado_pedido = EstadoPedido.PREPARACION
+            #Anade el pedido modificado a la sesion.
+            session.add(pedido)
+            #Marca que se realizo un cambio.
+            cambios_realizados = True
+            
+    #Si se realizaron cambios en la base de datos.
+    if cambios_realizados:
+        #Confirma los cambios (commit).
+        session.commit()
 
 
-
-"""
-Crea un nuevo pedido a partir del carrito del usuario autenticado.
-Calcula el total, transfiere los items y vacía el carrito.
-"""
-
+# --- CREAR PEDIDO DESDE CARRITO (APP CLIENTE) ---
 @router.post("/from-cart", response_model=esquemas.PedidoLectura)
 def crear_nuevo_pedido_carrito(
     pedido_in: esquemas.PedidoCrearDesdeCarrito,
     session: SessionDep,
     current_user: modelos.Usuario = Depends(get_current_user)
 ):
+    # 0. --- VALIDACIÓN DE TIENDA ABIERTA ---
+    #Busca la configuracion del sistema correspondiente al estado de la tienda.
+    config_tienda = session.get(modelos.ConfiguracionSistema, "ESTADO_TIENDA")
+    
+    #Si existe la configuracion y el valor es "CERRADO".
+    if config_tienda and config_tienda.valor == "CERRADO":
+        #Lanza una excepcion 503 indicando que el servicio no esta disponible.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, # Código 503: Servicio no disponible
+            detail="Lo sentimos, la tienda está cerrada en este momento. No se reciben pedidos."
+        )
+    # ---------------------------------------
 
-    #1. Cargar el carrito completo del usuario (con items y productos)
+    # 1. Cargar carrito
+    #Construye la consulta para obtener el carrito del usuario actual con sus relaciones.
     cart_statement = (
-        #Selecciona el modelo Carrito.
         select(modelos.Carrito)
-        #Filtra por el ID del usuario autenticado.
         .where(modelos.Carrito.id_usuario == current_user.id_usuario)
-        #Define las opciones de carga (JOINs) para eficiencia.
         .options(
-            #Carga la relacion items
             joinedload(modelos.Carrito.items)
             .joinedload(modelos.CarritoItem.producto)
+            .joinedload(modelos.Producto.categoria)
         )
     )
-    #Ejecuta la consulta y obtiene el primer resultado.
+    #Ejecuta la consulta y obtiene el primer resultado (el carrito).
     cart = session.exec(cart_statement).first()
     
-    #2. Validar el carrito
-    #Comprueba si el carrito no existe o si la lista de items del carrito esta vacia.
+    #Si no existe el carrito o no tiene items dentro.
     if not cart or not cart.items:
-        #Lanza un error 400 (Mala Peticion) si el carrito esta vacio.
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, 
-            detail="El carrito está vacío"
-        )
+        #Lanza error 400 indicando carrito vacio.
+        raise HTTPException(status_code=400, detail="El carrito está vacío")
         
-    #Inicializa el total del pedido en 0.
+    #Inicializa el total calculado del pedido.
     total_calculado = 0
-    #Crea una lista vacia para guardar los nuevos 'PedidoItem'.
+    #Lista para almacenar los items que se guardaran en la tabla de pedidos.
     items_para_db = []
+    #Bandera para identificar si el pedido contiene productos de preparacion lenta.
+    tiene_comida_lenta = False
     
-    #3. Procesar cada item del carrito
+    #Itera sobre cada item presente en el carrito.
     for item in cart.items:
-        #Verifica si el producto asociado al item (cargado por el JOIN) no existe.
+        #Si el item no tiene un producto asociado (error de integridad).
         if not item.producto:
-            #Lanza un error 404.
-            raise HTTPException(status_code=404, detail=f"Producto con id {item.id_producto} no encontrado. No se puede completar el pedido.")
+            #Lanza error 404.
+            raise HTTPException(status_code=404, detail=f"Producto {item.id_producto} no encontrado.")
         
-        # (Logica de stock - aun por revisar
-        # if item.producto.maneja_stock and item.producto.cantidad_stock < item.cantidad:
-        #     raise HTTPException(status_code=400, detail=f"Stock insuficiente para {item.producto.nombre}")
+        #Si el producto maneja stock y la cantidad disponible es menor a la solicitada.
+        if item.producto.maneja_stock and item.producto.cantidad_stock < item.cantidad:
+             #Lanza error 400 por stock insuficiente.
+             raise HTTPException(status_code=400, detail=f"Stock insuficiente para {item.producto.nombre}")
         
-        #Calcula el precio total de este item, usando el precio de la BD.
+        #Si el producto tiene una categoria asignada.
+        if item.producto.categoria:
+            #Normaliza el nombre de la categoria (minusculas y guiones bajos).
+            nombre_cat = item.producto.categoria.nombre.lower().replace(" ", "_")
+            #Si la categoria es comida preparada.
+            if "comida_preparada" in nombre_cat:
+                #Marca el pedido como lento.
+                tiene_comida_lenta = True
+
+        #Calcula el precio total por linea (precio unitario * cantidad).
         precio_item = item.producto.precio * item.cantidad
-        #Suma el precio de este item al total general del pedido.
+        #Suma al total general del pedido.
         total_calculado += precio_item
         
-        #Crea una nueva instancia del modelo 'PedidoItem' (la tabla de la BD).
+        #Crea el objeto PedidoItem basado en el item del carrito.
         nuevo_item_pedido = modelos.PedidoItem(
-            #Id_pedido se asignará automáticamente por la relación
             id_producto=item.id_producto,
-            #Asigna la cantidad desde el item del carrito.
             cantidad=item.cantidad,
-            #Guarda el precio unitario *en el momento de la compra*.
             precio_unitario_compra=item.producto.precio,
-            #Asigna las notas desde el item del carrito.
             notas=item.notas
         )
-        #Añade el 'PedidoItem' recien creado a la lista temporal.
+        #Agrega el nuevo item a la lista para guardar.
         items_para_db.append(nuevo_item_pedido)
         
-        # (Descontar - stock - aun por revisar
-        # if item.producto.maneja_stock:
-        #     item.producto.cantidad_stock -= item.cantidad
-        #     session.add(item.producto)
+        #Si el producto maneja inventario.
+        if item.producto.maneja_stock:
+             #Resta la cantidad comprada del stock.
+             item.producto.cantidad_stock -= item.cantidad
+             #Anade el producto actualizado a la sesion.
+             session.add(item.producto)
 
-    #4. Generar número de orden único
+    #Genera un nuevo numero de orden unico.
     num_orden_nuevo = f"BITCAFE-{str(uuid.uuid4())[:8].upper()}"
 
-    #5. Crear el Pedido principal
+    #Define el tiempo buffer base.
+    tiempo_buffer = 2 
+    #Define el tiempo de preparacion dependiendo del tipo de comida.
+    tiempo_preparacion = 15 if tiene_comida_lenta else 5
+    #Calcula el tiempo total en minutos.
+    tiempo_total_minutos = tiempo_buffer + tiempo_preparacion
+    
+    #Obtiene la hora actual.
+    ahora = datetime.now()
+    #Calcula la fecha y hora estimada de entrega.
+    tiempo_entrega_estimado = ahora + timedelta(minutes=tiempo_total_minutos)
+
+    #Crea la instancia del nuevo Pedido.
     nuevo_pedido = modelos.Pedido(
         id_usuario=current_user.id_usuario,
         num_orden=num_orden_nuevo,
-        #Asigna el total calculado del pedido.
         total_pedido=total_calculado,
-        #Asigna el metodo de pago enviado por el cliente.
         metodo_pago=pedido_in.metodo_pago,
-        # 'estado_pedido' y 'estado_pago' usan sus defaults ('pendiente')
-        items=items_para_db
+        items=items_para_db,
+        tiempo_estimado=tiempo_entrega_estimado 
     )
     
-    #6. Vaciar el carrito (eliminando los CarritoItems)
+    #Itera sobre los items del carrito para eliminarlos (vaciar carrito).
     for item in cart.items:
+        #Marca el item para eliminar.
         session.delete(item)
 
-    #7. Guardar todo en una transacción
+    #Anade el nuevo pedido a la sesion.
     session.add(nuevo_pedido)
-    #Confirma la transaccion (Crea el Pedido, crea los PedidoItem, borra los CarritoItem).
+    #Confirma la transaccion (guarda pedido, actualiza stock, vacia carrito).
     session.commit()
-    
-    # 8. Refrescar para obtener el objeto completo
+    #Refresca el objeto pedido para obtener IDs generados.
     session.refresh(nuevo_pedido)
+    #Refresca la relacion items para devolver la respuesta completa.
     session.refresh(nuevo_pedido, attribute_names=["items"])
     
+    #Devuelve el pedido creado.
     return nuevo_pedido
 
 
-"""
-Obtiene el historial de pedidos del usuario autenticado.
-"""
-
+# --- VER MIS PEDIDOS (CLIENTE) ---
 @router.get("/me", response_model=List[esquemas.PedidoLectura])
 def mi_pedidos(
     session: SessionDep,
     current_user: modelos.Usuario = Depends(get_current_user)
 ):
-
-    #Inicia la construccion de una consulta.
+    #Llama a la funcion auxiliar para actualizar estados pendientes antes de consultar.
+    actualizar_automaticamente_pendientes(session)
+    
+    #Construye la consulta de pedidos del usuario actual.
     statement = (
-        #Selecciona los 'Pedido'.
         select(modelos.Pedido)
-        #Filtra para obtener solo los pedidos del usuario autenticado.
         .where(modelos.Pedido.id_usuario == current_user.id_usuario)
-        #Ordena los resultados por fecha de creacion descendente (los mas nuevos primero).
         .order_by(modelos.Pedido.fecha_creacion.desc())
-        #Define las opciones de carga (JOINs) para eficiencia.
-        .options(
-            #Carga la relacion item
-            joinedload(modelos.Pedido.items)
-            .joinedload(modelos.PedidoItem.producto)
-        )
-    )
-    #Ejecuta la consulta, aplica 'unique()' (por los JOINs) y obtiene todos los resultados.
-    pedidos = session.exec(statement).unique().all()
-    #Devuelve la lista de pedidos encontrados.
-    return pedidos
-
-
-"""
-Ruta para el cajero/staff.
-Obtiene todos los pedidos que están 'pendiente' o 'preparacion'.
-"""
-
-@router.get("/pendientes", response_model=List[esquemas.PedidoLectura])
-def ordenes_pendientes(
-    session: SessionDep,
-    current_user: modelos.Usuario = Depends(get_current_user)
-):
-    #VALIDCACIÓN DE ROL
-    #Comprueba si el rol del usuario NO es STAFF o ADMIN.
-    if current_user.rol not in [UserRole.STAFF, UserRole.ADMIN]:
-        #Lanza un error 403 (Prohibido) si no tiene el rol adecuado.
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, 
-            detail="No tienes permiso para realizar esta acción"
-        )
-
-    #Define la lista de estados que se consideran "activos" o "pendientes".
-    estados_activos = [EstadoPedido.PENDIENTE, EstadoPedido.PREPARACION]
-
-    
-    #Inicia la construccion de una consulta.
-    statement = (
-        #Selecciona los 'Pedido'.
-        select(modelos.Pedido)
-        #Filtra donde el 'estado_pedido' este EN la lista 'estados_activos'.
-        .where(modelos.Pedido.estado_pedido.in_(estados_activos))
-        #Ordena por fecha de creacion ascendente (los mas antiguos primero, FIFO).
-        .order_by(modelos.Pedido.fecha_creacion.asc())
-        #Define las opciones de carga (JOINs).
         .options(
             joinedload(modelos.Pedido.items)
             .joinedload(modelos.PedidoItem.producto)
         )
     )
-    #Ejecuta la consulta, aplica 'unique()' y obtiene todos los resultados.
-    pedidos = session.exec(statement).unique().all()
-    #Devuelve la lista de pedidos pendientes.
-    return pedidos
-
-
-"""
-Ruta para el cajero/staff.
-Actualiza el estado de un pedido (ej. 'pendiente' -> 'preparacion').
-"""
+    #Ejecuta la consulta y obtiene resultados unicos.
+    pedidos_db = session.exec(statement).unique().all()
     
-@router.patch("/{pedido_id}/status", response_model=esquemas.PedidoLectura)
-def actualizar_ordenes_estado(
-    pedido_id: int,
-    status_update: esquemas.PedidoActualizar,
-    session: SessionDep,
-    current_user: modelos.Usuario = Depends(get_current_user)
-):
+    #Lista para procesar la respuesta.
+    pedidos_respuesta = []
+    #Obtiene hora actual.
+    ahora = datetime.now()
 
-    #VALIDACIÓN DE ROL
-    #Comprueba si el rol del usuario NO es STAFF o ADMIN.
-    if current_user.rol not in [UserRole.STAFF, UserRole.ADMIN]:
-        #Lanza un error 403 (Prohibido).
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, 
-            detail="No tienes permiso para realizar esta acción"
-        )
-    
-    #Busca el pedido en la BD por su clave primaria.
-    db_pedido = session.get(modelos.Pedido, pedido_id)
-    #Si el pedido no se encuentra.
-    if not db_pedido:
-        #Lanza un error 404 (No Encontrado).
-        raise HTTPException(status_code=404, detail="Pedido no encontrado")
+    #Itera sobre los pedidos obtenidos de la BD.
+    for p in pedidos_db:
+        #Valida y convierte el modelo SQL a esquema Pydantic.
+        p_esquema = esquemas.PedidoLectura.model_validate(p)
         
-    #Convierte los datos de entrada a un diccionario, excluyendo campos no enviados.
-    update_data = status_update.model_dump(exclude_unset=True)
-    #Si no se enviaron datos para actualizar.
-    if not update_data:
-        #Lanza un error 400 (Mala Peticion).
-        raise HTTPException(status_code=400, detail="No hay datos para actualizar")
+        #Lista de estados que se consideran finalizados.
+        estados_finalizados = [EstadoPedido.LISTO, EstadoPedido.ENTREGADO, EstadoPedido.CANCELADO]
         
-    #Itera sobre los datos enviados (ej. 'estado_pedido', 'estado_pago').
-    for key, value in update_data.items():
-        #Actualiza el campo ('key') en el objeto 'db_pedido' con el nuevo 'value'.
-        setattr(db_pedido, key, value)
+        #Si el pedido aun no ha finalizado y tiene un tiempo estimado.
+        if p.estado_pedido not in estados_finalizados and p.tiempo_estimado:
+            #Si la hora actual supera la estimada (hay retraso).
+            if ahora > p.tiempo_estimado:
+                #Calcula la diferencia de tiempo.
+                retraso = ahora - p.tiempo_estimado
+                #Convierte a minutos enteros (minimo 1).
+                minutos_retraso = max(1, int(retraso.total_seconds() / 60))
+                #Asigna mensaje de retraso al esquema de respuesta.
+                p_esquema.mensaje_retraso = f"Tu pedido está retrasado por {minutos_retraso} min. Estamos agilizando tu orden."
         
-    #Añade el objeto modificado a la sesion.
-    session.add(db_pedido)
-    session.commit()
-    session.refresh(db_pedido)
-    
-    #Devuelve el pedido ya actualizado.
-    return db_pedido
+        #Agrega el esquema procesado a la lista final.
+        pedidos_respuesta.append(p_esquema)
+
+    #Devuelve la lista de pedidos.
+    return pedidos_respuesta
