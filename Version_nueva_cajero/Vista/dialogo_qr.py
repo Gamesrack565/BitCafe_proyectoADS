@@ -1,6 +1,5 @@
-#BITCAFE
-#VERSION 0.1
-#By: Angel A. Higuera
+#BITCAFE - VERSION 1.1 (Rediseño de Pago QR)
+#By: Angel A. Higuera / Gemini Partner
 
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QLabel, QPushButton, 
                              QGraphicsDropShadowEffect, QFrame)
@@ -13,121 +12,126 @@ import io
 class DialogoQR(QDialog):
     def __init__(self, url_pago, total, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Escanea para pagar")
+        self.setWindowTitle("Pago por Transferencia")
         
-        # --- DEBUG ---
-        print(f"DEBUG QR: Generando código para: {url_pago}")
-
-        # Configuración de ventana
+        # Configuración de ventana (Sin bordes de Windows)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setFixedSize(420, 600)
+        self.setFixedSize(450, 620)
 
-        # Contenedor
+        # Contenedor Principal con estilo BitCafe
         self.container = QFrame(self)
-        self.container.setGeometry(10, 10, 400, 580)
+        self.container.setGeometry(15, 15, 420, 590)
         self.container.setStyleSheet("""
-            QFrame { background-color: white; border-radius: 15px; border: 1px solid #E0E0E0; }
+            QFrame { 
+                background-color: white; 
+                border-radius: 25px; 
+                border: 2px solid #F0F0F0; 
+            }
         """)
         
+        # Sombra elegante
         sombra = QGraphicsDropShadowEffect(self)
-        sombra.setBlurRadius(25)
-        sombra.setYOffset(5)
-        sombra.setColor(QColor(0, 0, 0, 50))
+        sombra.setBlurRadius(30)
+        sombra.setYOffset(10)
+        sombra.setColor(QColor(0, 0, 0, 80))
         self.container.setGraphicsEffect(sombra)
 
         layout = QVBoxLayout(self.container)
-        layout.setContentsMargins(30, 30, 30, 30)
-        layout.setSpacing(15)
+        layout.setContentsMargins(40, 40, 40, 40)
+        layout.setSpacing(10)
 
-        # Títulos
-        lbl_titulo = QLabel("Mercado Pago")
+        # Header: Logo o Nombre del Sistema
+        lbl_titulo = QLabel("BITCAFÉ")
         lbl_titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl_titulo.setStyleSheet("font-size: 24px; font-weight: 900; color: #009EE3; border: none;") 
+        lbl_titulo.setStyleSheet("font-size: 16px; font-weight: bold; color: #888; border: none; letter-spacing: 2px;") 
         layout.addWidget(lbl_titulo)
 
-        lbl_instruccion = QLabel("Escanea para pagar:")
-        lbl_instruccion.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl_instruccion.setStyleSheet("color: #666; font-size: 14px; border: none;")
-        layout.addWidget(lbl_instruccion)
-        
-        lbl_monto = QLabel(f"${total:.2f}")
-        lbl_monto.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl_monto.setStyleSheet("color: #333; font-size: 28px; font-weight: bold; border: none; margin-bottom: 10px;")
-        layout.addWidget(lbl_monto)
+        lbl_subtitulo = QLabel("Escanea y Paga")
+        lbl_subtitulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_subtitulo.setStyleSheet("font-size: 26px; font-weight: 900; color: #009EE3; border: none;") 
+        layout.addWidget(lbl_subtitulo)
 
-        # --- LABEL DEL QR ---
+        layout.addSpacing(10)
+
+        # QR Frame (Contenedor para resaltar el QR)
         self.lbl_qr = QLabel()
         self.lbl_qr.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_qr.setStyleSheet("border: none; background-color: white;") 
         self.lbl_qr.setFixedSize(280, 280)
+        self.lbl_qr.setStyleSheet("border: 2px solid #009EE3; border-radius: 10px; background-color: #FAFAFA;")
         
         self.generar_qr(url_pago)
-        
-        # CORRECCIÓN DE CENTRADO: Añadimos alignment=AlignCenter
         layout.addWidget(self.lbl_qr, alignment=Qt.AlignmentFlag.AlignCenter)
         
+        # Monto a pagar destacado
+        lbl_total_text = QLabel("TOTAL A PAGAR")
+        lbl_total_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_total_text.setStyleSheet("color: #999; font-size: 12px; font-weight: bold; border: none; margin-top: 15px;")
+        layout.addWidget(lbl_total_text)
+
+        lbl_monto = QLabel(f"${total:.2f}")
+        lbl_monto.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_monto.setStyleSheet("color: #222; font-size: 34px; font-weight: bold; border: none;")
+        layout.addWidget(lbl_monto)
+
         layout.addStretch()
 
-        # Botones
-        self.btn_confirmar = QPushButton("Ya se realizó el pago")
+        # Botón de Confirmación Principal
+        self.btn_confirmar = QPushButton("CONFIRMAR PAGO")
         self.btn_confirmar.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_confirmar.setFixedHeight(50)
+        self.btn_confirmar.setFixedHeight(60)
         self.btn_confirmar.setStyleSheet("""
-            QPushButton { background-color: #009EE3; color: white; font-weight: bold; font-size: 16px; border-radius: 10px; border: none; }
+            QPushButton { 
+                background-color: #009EE3; 
+                color: white; 
+                font-weight: bold; 
+                font-size: 18px; 
+                border-radius: 15px; 
+                border: none; 
+            }
             QPushButton:hover { background-color: #007EB5; }
+            QPushButton:pressed { background-color: #005F8A; }
         """)
         self.btn_confirmar.clicked.connect(self.accept) 
         layout.addWidget(self.btn_confirmar)
 
-        btn_cancelar = QPushButton("Cancelar")
+        # Botón Cancelar discreto
+        btn_cancelar = QPushButton("Regresar")
         btn_cancelar.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_cancelar.setFixedHeight(40)
+        btn_cancelar.setFixedHeight(30)
         btn_cancelar.setStyleSheet("""
-            QPushButton { background-color: transparent; color: #888; font-weight: bold; font-size: 14px; border: none; }
-            QPushButton:hover { color: #555; text-decoration: underline; }
+            QPushButton { background-color: transparent; color: #BBB; font-weight: bold; font-size: 13px; border: none; }
+            QPushButton:hover { color: #E74C3C; }
         """)
         btn_cancelar.clicked.connect(self.reject)
         layout.addWidget(btn_cancelar)
 
     def generar_qr(self, url):
-        """
-        Genera un QR de ALTA CALIDAD optimizado para lectura en pantallas.
-        """
         if not url: return
-
         try:
-            # 1. Configuración ROBUSTA del QR
             qr = qrcode.QRCode(
                 version=None,
                 error_correction=ERROR_CORRECT_H,
                 box_size=10,
-                border=2,
+                border=1,
             )
             qr.add_data(url)
             qr.make(fit=True)
             
-            # 2. Convertir a RGB
-            img_pil = qr.make_image(fill_color="black", back_color="white").convert("RGB")
-
-            # 3. Guardar en memoria
+            img_pil = qr.make_image(fill_color="#000000", back_color="#FAFAFA").convert("RGB")
             buffer = io.BytesIO()
             img_pil.save(buffer, format="PNG")
-            buffer.seek(0)
-
-            # 4. Cargar en Qt
+            
             q_img = QImage.fromData(buffer.getvalue())
             pixmap = QPixmap.fromImage(q_img)
             
-            # 5. ESCALADO PIXEL-PERFECT
             pixmap_escalado = pixmap.scaled(
-                280, 280,
+                260, 260,
                 Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.FastTransformation 
+                Qt.TransformationMode.SmoothTransformation 
             )
-            
             self.lbl_qr.setPixmap(pixmap_escalado)
             
         except Exception as e:
-            print(f"Error generando QR visual: {e}")
-            self.lbl_qr.setText("Error al cargar QR")
+            self.lbl_qr.setText("Error QR")
+            print(f"Error: {e}")

@@ -91,7 +91,10 @@ class HiloAccion(QThread):
 
 # --- CONTROLADOR PRINCIPAL ---
 class ControladorPedidos:
-    def __init__(self, vista_pedidos):
+    # CORRECCIÓN: Se agrega 'modelo_api' como argumento, ya que se recibe desde main.py
+    def __init__(self, modelo_api, vista_pedidos):
+        #Guarda la referencia al modelo de datos (API Client)
+        self.modelo_api = modelo_api
         #Guarda la referencia a la vista del monitor de cocina.
         self.vista = vista_pedidos
         #Inicializa la variable para comparar datos anteriores y evitar repintados.

@@ -1,7 +1,3 @@
-#BITCAFE
-#VERSION 2
-#By: Angel A. Higuera
-
 #Modulos y librerias
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -31,10 +27,12 @@ app = FastAPI(
 if not os.path.exists("static_images"):
     os.makedirs("static_images")
 
-#Montamos la carpeta para guardar imagenes
-#Esto significa que todo lo que esté en la carpeta "static_images"
-#será accesible en la dirección: http://localhost:8000/imagenes/nombre_archivo.jpg
-app.mount("/imagenes", StaticFiles(directory="static_images"), name="imagenes")
+# Montamos la carpeta para guardar imagenes
+# CAMBIO IMPORTANTE AQUÍ: El path público (URL) se cambia de "/imagenes" a "/static_images"
+# para coincidir con la URL que espera el frontend del cajero.
+# Esto significa que todo lo que esté en la carpeta "static_images"
+# será accesible en la dirección: http://localhost:8000/static_images/nombre_archivo.jpg
+app.mount("/static_images", StaticFiles(directory="static_images"), name="static_images")
 
 
 app.include_router(auth.router, prefix="/auth", tags=["Autenticación"])
@@ -52,4 +50,3 @@ app.include_router(configuracion.router)
 @app.get("/", tags=["Root"])
 def read_root():
     return {"message": "Bienvenido a la API de BitCafé v1.0"}
-

@@ -1,10 +1,17 @@
-#BITCAFE
-#VERSION 1.0 
-#By: Angel A. Higuera
+# BITCAFE
+# VERSION 1.1 (Sincronización de Tipos de Datos para API)
+# By: Angel A. Higuera y Gemini
 
-from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, 
-                             QDoubleSpinBox, QComboBox, QPushButton, 
-                             QRadioButton, QButtonGroup, QGraphicsDropShadowEffect)
+# =================================================================
+# MODIFICACIÓN 1: Añadir imports necesarios para gestión de archivos
+# =================================================================
+import os 
+from PyQt6.QtWidgets import (
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, 
+    QDoubleSpinBox, QComboBox, QPushButton, QRadioButton, 
+    QButtonGroup, QGraphicsDropShadowEffect, QFileDialog, 
+    QMessageBox # Añadido QFileDialog y QMessageBox
+)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 
@@ -12,9 +19,18 @@ class DialogoProducto(QDialog):
     def __init__(self, parent=None, producto_data=None):
         super().__init__(parent)
         self.setWindowTitle("Gestión de Producto")
-        self.setFixedSize(450, 680) 
+        # Aumento de altura para dar espacio al nuevo campo de imagen
+        self.setFixedSize(450, 750) 
         self.setStyleSheet("background-color: #FFFFFF;")
         
+        # Guardar datos de producto si estamos en modo edición
+        self.producto_data = producto_data
+        
+        # =================================================================
+        # MODIFICACIÓN 2: Variable para almacenar la ruta local de la imagen
+        # =================================================================
+        self.ruta_imagen_seleccionada = None 
+
         # Layout Principal
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(30, 30, 30, 30)
@@ -110,10 +126,10 @@ class DialogoProducto(QDialog):
             /* LA LISTA DESPLEGABLE */
             QComboBox QAbstractItemView {
                 background-color: #FFFFFF;  /* Fondo blanco */
-                color: #333333;             /* <--- ESTA LÍNEA ES LA SOLUCIÓN (Texto Negro) */
+                color: #333333;             /* Texto Negro */
                 border: 1px solid #AAAAAA;
                 selection-background-color: #D22A00; 
-                selection-color: #FFFFFF;   /* Texto blanco solo al pasar el mouse */
+                selection-color: #FFFFFF; 
                 outline: none;
             }
         """)
@@ -151,6 +167,39 @@ class DialogoProducto(QDialog):
         self.inp_stock.setEnabled(False)
         self.layout.addWidget(self.inp_stock)
 
+
+        # =================================================================
+        # MODIFICACIÓN 3: BLOQUE COMPLETO DE SELECCIÓN DE IMAGEN
+        # =================================================================
+        self.agregar_campo_texto("Imagen del Producto (Opcional)")
+        
+        self.layout_imagen = QHBoxLayout()
+        self.lbl_ruta_imagen = QLabel("No hay imagen seleccionada.")
+        self.lbl_ruta_imagen.setStyleSheet("color: #666; font-size: 13px;")
+        
+        self.btn_seleccionar_imagen = QPushButton("Seleccionar Archivo...")
+        self.btn_seleccionar_imagen.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_seleccionar_imagen.setStyleSheet("""
+            QPushButton {
+                background-color: #F0F0F0;
+                color: #333;
+                border: 1px solid #AAA;
+                border-radius: 8px;
+                padding: 6px 10px;
+                font-size: 13px;
+            }
+            QPushButton:hover { background-color: #E0E0E0; }
+        """)
+        # Conexión al nuevo método
+        self.btn_seleccionar_imagen.clicked.connect(self.seleccionar_imagen) 
+
+        self.layout_imagen.addWidget(self.lbl_ruta_imagen)
+        self.layout_imagen.addStretch()
+        self.layout_imagen.addWidget(self.btn_seleccionar_imagen)
+        
+        self.layout.addLayout(self.layout_imagen)
+        # =================================================================
+
         self.layout.addStretch()
 
         # --- BOTÓN ACEPTAR ---
@@ -179,11 +228,11 @@ class DialogoProducto(QDialog):
         self.layout.addWidget(self.btn_aceptar)
 
         # --- CARGAR DATOS SI ES EDICIÓN ---
-        if producto_data:
-            self.cargar_datos_existentes(producto_data)
+        if self.producto_data:
+            self.cargar_datos_existentes(self.producto_data)
 
     # =====================
-    # HELPERS DE DISEÑO
+    # HELPERS DE DISEÑO (Sin cambios)
     # =====================
     def agregar_campo_texto(self, texto):
         lbl = QLabel(texto)
@@ -219,8 +268,26 @@ class DialogoProducto(QDialog):
             self.inp_stock.setStyleSheet(self.estilo_input + "color: #333;")
 
     # =====================
-    # LÓGICA
+    # LÓGICA DE IMAGEN Y DATOS
     # =====================
+    
+    # =================================================================
+    # MODIFICACIÓN 4: Nuevo método para seleccionar imagen
+    # =================================================================
+    def seleccionar_imagen(self):
+        """Abre un diálogo de archivo para seleccionar una imagen local."""
+        file_filter = "Imágenes (*.png *.jpg *.jpeg)"
+        file_path, _ = QFileDialog.getOpenFileName(self, "Seleccionar Imagen", "", file_filter)
+        
+        if file_path:
+            self.ruta_imagen_seleccionada = file_path
+            self.lbl_ruta_imagen.setText(os.path.basename(file_path))
+            QMessageBox.information(self, "Imagen Seleccionada", 
+                f"La imagen '{os.path.basename(file_path)}' será cargada al guardar.")
+
+    # =================================================================
+    # MODIFICACIÓN 5: Actualizar 'cargar_datos_existentes' para mostrar la imagen actual
+    # =================================================================
     def cargar_datos_existentes(self, data):
         self.inp_nombre.setText(data.get("nombre", ""))
         self.inp_desc.setText(data.get("descripcion", "") or "")
@@ -249,14 +316,29 @@ class DialogoProducto(QDialog):
         else:
             self.rb_stock_no.setChecked(True)
             self.inp_stock.setEnabled(False)
+            
+        # Lógica para mostrar la imagen actual
+        url_imagen_existente = data.get("url_imagen") or data.get("ruta_imagen")
+        if url_imagen_existente:
+             # Usa el último segmento de la URL como nombre visible
+            display_name = url_imagen_existente.split('/')[-1] if '/' in url_imagen_existente else url_imagen_existente
+            # Muestra los primeros 40 caracteres para evitar desborde
+            self.lbl_ruta_imagen.setText(f"Imagen actual: {display_name[:40]}...") 
+        else:
+            self.lbl_ruta_imagen.setText("No hay imagen asociada (Seleccionar una nueva)")
 
+
+    # =================================================================
+    # MODIFICACIÓN 6: Actualizar 'obtener_datos_formulario' para devolver la ruta de la imagen
+    # =================================================================
     def obtener_datos_formulario(self):
         nombre_cat = self.inp_categoria.currentText()
         id_cat = self.mapa_categorias.get(nombre_cat, 4)
 
+        # CORRECCIÓN: Usamos booleanos reales (True/False) y limpiamos texto
         datos = {
-            "nombre": self.inp_nombre.text(),
-            "descripcion": self.inp_desc.text(),
+            "nombre": self.inp_nombre.text().strip(),
+            "descripcion": self.inp_desc.text().strip(),
             "precio": self.inp_precio.value(),
             "esta_disponible": self.rb_disp_si.isChecked(),
             "id_categoria": id_cat,
@@ -264,5 +346,5 @@ class DialogoProducto(QDialog):
             "cantidad_stock": int(self.inp_stock.value())
         }
         
-        # Retornamos None en el segundo valor (imagen) para no romper el controlador
-        return datos, None
+        # Devuelve los datos y la ruta del archivo local. 
+        return datos, self.ruta_imagen_seleccionada

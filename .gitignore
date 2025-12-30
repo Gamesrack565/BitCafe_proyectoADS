@@ -1,0 +1,23 @@
+# Librerías y entornos virtuales
+venv/
+env/
+Lib/
+site-packages/
+bin/
+
+# Archivos temporales de Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Archivos pesados de sistema y librerías
+*.dll
+*.so
+*.dylib
+*.exe
+
+# Carpetas de configuración de editores
+.vscode/
+.idea/
+.project

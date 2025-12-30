@@ -1,14 +1,15 @@
-#BITCAFE
-#VERSION 1.0 
-#By: Angel A. Higuera
+# BITCAFE
+# VERSION 1.1 - Imagenes Dinamicas y UI Limpia
+# By: Angel A. Higuera & Gemini Partner
 
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, 
                              QLineEdit, QPushButton, QScrollArea, QFrame, 
                              QGraphicsDropShadowEffect, QSizePolicy, QCompleter)
-from PyQt6.QtCore import Qt, QStringListModel, pyqtSignal
-from PyQt6.QtGui import QColor, QStandardItemModel, QStandardItem
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QPixmap
+import requests
+from io import BytesIO
 from .ventana_base import VentanaBase
-from Vista.dialogo_pagar import DialogoPago
 
 # --- WIDGET PERSONALIZADO: FILA DE PRODUCTO ---
 class ProductoItem(QFrame):
@@ -16,7 +17,7 @@ class ProductoItem(QFrame):
     cantidad_cambiada = pyqtSignal(object, int) 
     eliminar_item = pyqtSignal(object)          
 
-    def __init__(self, p_id, nombre, categoria, precio):
+    def __init__(self, p_id, nombre, categoria, precio, url_imagen=None):
         super().__init__()
         self.p_id = p_id
         self.nombre = nombre
@@ -36,10 +37,13 @@ class ProductoItem(QFrame):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(15, 10, 15, 10)
         
-        img_placeholder = QLabel()
-        img_placeholder.setFixedSize(48, 48)
-        img_placeholder.setStyleSheet("background-color: #E0E0E0; border-radius: 8px;")
-        layout.addWidget(img_placeholder)
+        # --- LÓGICA DE IMAGEN REAL ---
+        self.lbl_foto = QLabel()
+        self.lbl_foto.setFixedSize(52, 52)
+        self.lbl_foto.setStyleSheet("background-color: #F5F5F5; border-radius: 8px; border: 1px solid #DDD;")
+        self.lbl_foto.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.cargar_imagen_desde_url(url_imagen)
+        layout.addWidget(self.lbl_foto)
         
         layout.addSpacing(12)
         
@@ -90,6 +94,51 @@ class ProductoItem(QFrame):
         layout.addWidget(self.lbl_cantidad)
         layout.addWidget(self.btn_mas)
 
+    def cargar_imagen_desde_url(self, url):
+        """Descarga la imagen asegurando el formato correcto de la URL"""
+        if not url or str(url).lower() == "none" or url == "":
+            self.lbl_foto.setText("☕")
+            return
+        
+        # 1. LIMPIEZA: Quitar espacios y asegurar que la URL sea string
+        url = str(url).strip().replace(" ", "%20")
+        
+        # 2. CONSTRUCCIÓN SEGURA:
+        # Si la URL no empieza con http, la construimos
+        if not url.startswith("http"):
+            # Si el pedazo de URL no empieza con /, se lo ponemos nosotros
+            prefix = "/" if not url.startswith("/") else ""
+            url = f"http://127.0.0.1:8000{prefix}{url}"
+        else:
+            # Si ya trae http, verificamos si por error se pegó al puerto 
+            # (Caso: http://127.0.0.1:8000static...)
+            if "8000static" in url:
+                url = url.replace("8000static", "8000/static")
+
+        try:
+            # 3. DESCARGA
+            response = requests.get(url, timeout=5)
+            if response.status_code == 200:
+                pixmap = QPixmap()
+                pixmap.loadFromData(response.content)
+                if not pixmap.isNull():
+                    self.lbl_foto.setPixmap(pixmap.scaled(
+                        52, 52, 
+                        Qt.AspectRatioMode.KeepAspectRatioByExpanding, 
+                        Qt.TransformationMode.SmoothTransformation
+                    ))
+                    self.lbl_foto.setText("")
+                else:
+                    self.lbl_foto.setText("?")
+            else:
+                # Si el servidor responde 404 u otro error
+                print(f"Error de servidor {response.status_code} en URL: {url}")
+                self.lbl_foto.setText("404")
+        except Exception as e:
+            # Aquí es donde salía el "!"
+            print(f"Error crítico en ProductoItem: {e} | URL intentada: {url}")
+            self.lbl_foto.setText("!")
+
     def sumar(self):
         self.cantidad_actual += 1
         self.lbl_cantidad.setText(str(self.cantidad_actual))
@@ -101,13 +150,11 @@ class ProductoItem(QFrame):
             self.lbl_cantidad.setText(str(self.cantidad_actual))
             self.cantidad_cambiada.emit(self, self.cantidad_actual)
         else:
-            # Si baja de 1, pedimos eliminar
             self.eliminar_item.emit(self)
 
 
 # --- VISTA PRINCIPAL PEDIDO MANUAL ---
 class VistaPedidoManual(VentanaBase):
-    # Señal: Texto seleccionado del buscador
     producto_seleccionado = pyqtSignal(str)
 
     def __init__(self, logo_path=None):
@@ -124,21 +171,26 @@ class VistaPedidoManual(VentanaBase):
         
         self.contenido_layout.addLayout(self.grid_layout)
         
-        # --- Fila 0 ---
+        # --- Fila 0: Buscador y Folio ---
         panel_superior_izq = QWidget()
         layout_sup = QVBoxLayout(panel_superior_izq)
         layout_sup.setContentsMargins(0, 0, 0, 0)
-        layout_sup.setSpacing(20)
+        layout_sup.setSpacing(10)
         
-        lbl_folio = QLabel("Folio:")
-        lbl_folio.setStyleSheet("font-weight: bold; font-size: 15px; color: #111;")
-        layout_sup.addWidget(lbl_folio)
+        # Folio oculto por requerimiento
+        self.lbl_folio_texto = QLabel("Folio:")
+        self.lbl_folio_texto.setStyleSheet("font-weight: bold; font-size: 15px; color: #111;")
+        layout_sup.addWidget(self.lbl_folio_texto)
         
         self.input_folio = QLineEdit("Generando...") 
         self.input_folio.setReadOnly(True)
         self.input_folio.setFixedWidth(240)
         self.input_folio.setStyleSheet("background-color: #EEE; border: 1px solid #CCC; border-radius: 8px; padding: 6px 12px; font-weight: bold;")
         layout_sup.addWidget(self.input_folio)
+        
+        # OCULTAR FOLIO:
+        self.lbl_folio_texto.hide()
+        self.input_folio.hide()
         
         lbl_buscar = QLabel("¿Qué va a ordenar?")
         lbl_buscar.setStyleSheet("font-weight: bold; font-size: 15px; color: #111;")
@@ -157,7 +209,7 @@ class VistaPedidoManual(VentanaBase):
         lbl_orden = QLabel("Orden"); lbl_orden.setStyleSheet("font-weight: bold; font-size: 16px; color: #111; margin-top: 20px;")
         self.grid_layout.addWidget(lbl_orden, 1, 0)
         
-        lbl_ticket = QLabel("Ticket"); lbl_ticket.setStyleSheet("font-weight: bold; font-size: 16px; color: #111; margin-top: 20px;")
+        lbl_ticket = QLabel("Acciones"); lbl_ticket.setStyleSheet("font-weight: bold; font-size: 16px; color: #111; margin-top: 20px;")
         self.grid_layout.addWidget(lbl_ticket, 1, 1)
 
         # --- Fila 2: Contenido ---
@@ -180,51 +232,43 @@ class VistaPedidoManual(VentanaBase):
         layout_acciones = QVBoxLayout(panel_acciones)
         layout_acciones.setContentsMargins(0, 0, 0, 0)
         layout_acciones.setAlignment(Qt.AlignmentFlag.AlignTop)
-        layout_acciones.setSpacing(5) 
+        layout_acciones.setSpacing(15) 
         
         self.btn_imprimir = QPushButton("Imprimir Ticket")
         self.btn_imprimir.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_imprimir.setFixedSize(200, 38) 
+        self.btn_imprimir.setFixedSize(200, 45) 
         self.btn_imprimir.setStyleSheet("background-color: #D22A00; color: white; font-weight: bold; border-radius: 10px; border: none;")
         self.btn_imprimir.setGraphicsEffect(self._crear_sombra_suave())
         layout_acciones.addWidget(self.btn_imprimir)
         
-        layout_acciones.addWidget(QLabel("Pago")) # Etiqueta simple sin variable si no se usa
-        
         self.btn_pagar = QPushButton("Pagar")
         self.btn_pagar.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_pagar.setFixedSize(200, 38)
+        self.btn_pagar.setFixedSize(200, 45)
         self.btn_pagar.setStyleSheet("background-color: white; color: #D22A00; font-weight: bold; border-radius: 10px; border: 2px solid #D22A00;")
         self.btn_pagar.setGraphicsEffect(self._crear_sombra_suave())
         layout_acciones.addWidget(self.btn_pagar)
         
         layout_acciones.addStretch()
         
-        layout_total = QHBoxLayout()
-        layout_total.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        lbl_total_titulo = QLabel("Total"); lbl_total_titulo.setStyleSheet("font-weight: bold; font-size: 18px; color: #111;")
+        layout_total = QVBoxLayout()
+        lbl_total_titulo = QLabel("Total a Pagar:"); lbl_total_titulo.setStyleSheet("font-weight: bold; font-size: 14px; color: #555;")
         layout_total.addWidget(lbl_total_titulo)
-        layout_total.addSpacing(80) 
         
         self.lbl_total_valor = QLabel("$ 0.00") 
         self.lbl_total_valor.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_total_valor.setFixedSize(120, 45)
-        self.lbl_total_valor.setStyleSheet("background-color: #EEE; border: 1px solid #DDD; border-radius: 10px; font-size: 16px; font-weight: bold; color: #333;")
+        self.lbl_total_valor.setFixedSize(200, 60)
+        self.lbl_total_valor.setStyleSheet("background-color: #F8F8F8; border: 2px solid #D22A00; border-radius: 12px; font-size: 24px; font-weight: 900; color: #D22A00;")
         layout_total.addWidget(self.lbl_total_valor)
         
         layout_acciones.addLayout(layout_total)
-        layout_acciones.addSpacing(20)
-
         self.grid_layout.addWidget(panel_acciones, 2, 1)
 
-        # Configuración inicial del buscador (VACÍA, el controlador la llenará)
+        # Buscador
         self.completer = QCompleter([])
         self.completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
         self.completer.setFilterMode(Qt.MatchFlag.MatchContains)
         self.completer.popup().setStyleSheet("QListView { background: white; color: #333; border: 1px solid #CCC; } QListView::item:selected { background: #D22A00; color: white; }")
         self.input_buscar.setCompleter(self.completer)
-        
-        # Conexión de señal
         self.completer.activated.connect(self.producto_seleccionado.emit)
 
     def _crear_sombra_suave(self):

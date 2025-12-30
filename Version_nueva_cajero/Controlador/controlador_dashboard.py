@@ -50,7 +50,10 @@ class HiloDashboard(QThread):
             print(f"Error en hilo dashboard: {e}")
 
 class ControladorDashboard:
-    def __init__(self, vista_dashboard):
+    # CORRECCIÓN: Agregar 'modelo_api' como argumento
+    def __init__(self, modelo_api, vista_dashboard):
+        #Guarda la referencia al modelo de datos (API Cliente)
+        self.modelo_api = modelo_api
         #Guarda la referencia a la vista del dashboard para manipular la UI.
         self.vista = vista_dashboard
         

@@ -5,8 +5,10 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                              QPushButton, QScrollArea, QFrame, QLineEdit,
                              QGraphicsDropShadowEffect, QAbstractButton)
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QPainter, QBrush, QPen
+from PyQt6.QtCore import Qt, QUrl, pyqtSignal
+from PyQt6.QtGui import QColor, QPainter, QBrush, QPen, QPixmap
+# Importación clave para la carga asíncrona de imágenes
+from PyQt6.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply, QNetworkProxy 
 from .ventana_base import VentanaBase
 
 
@@ -32,7 +34,8 @@ class ToggleSwitch(QAbstractButton):
         painter.setBrush(QBrush(circle_color))
         radius = 11
         y_pos = 3
-        x_pos = rect.width() - (radius * 2) - 3 if self.isChecked() else 3
+        # Ajuste de posición (se mueve 2px extra para centrar mejor el círculo en el track)
+        x_pos = rect.width() - (radius * 2) - 5 if self.isChecked() else 3
             
         painter.drawEllipse(x_pos, y_pos, radius * 2, radius * 2)
         painter.end()
@@ -44,11 +47,17 @@ COL_ANCHO_DISP = 120
 COL_ANCHO_ACCIONES = 100
 
 
-
 class ProductoAdminItem(QFrame):
-    def __init__(self, nombre, categoria, precio, activo):
+    # NUEVA SEÑAL: Avisa cuando el switch cambia para que el buscador lo vea
+    status_changed = pyqtSignal()
+
+    def __init__(self, nombre, categoria, precio, activo, imagen_url=None):
         super().__init__()
         self.nombre_texto = nombre 
+        # Aseguramos que imagen_url sea una cadena para la validación posterior
+        self.imagen_url = str(imagen_url) if imagen_url else None 
+        self.imagen_widget = None 
+        self.manager = None 
         
         self.setFixedHeight(80)
         self.setStyleSheet("""
@@ -64,10 +73,14 @@ class ProductoAdminItem(QFrame):
         layout.setContentsMargins(20, 10, 20, 10)
         layout.setSpacing(10)
 
-        # Imagen
-        img = QLabel()
+        # --- Contenedor de Imagen/Placeholder ---
+        img = QLabel("🖼️") # Placeholder inicial
         img.setFixedSize(48, 48)
-        img.setStyleSheet("background-color: #E0E0E0; border-radius: 8px;")
+        img.setAlignment(Qt.AlignmentFlag.AlignCenter) 
+        # Estilo de placeholder robusto para cuando la imagen no carga o no existe
+        img.setStyleSheet("background-color: #F0F0F0; border-radius: 8px; font-weight: bold; font-size: 18px; color: #555;")
+        
+        self.imagen_widget = img 
         layout.addWidget(img)
         layout.addSpacing(10)
 
@@ -81,7 +94,13 @@ class ProductoAdminItem(QFrame):
         lbl_cat.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(lbl_cat)
 
-        lbl_precio = QLabel(f"${precio}")
+        # Manejo de Precio
+        try:
+            precio_float = float(precio)
+        except (ValueError, TypeError):
+            precio_float = 0.0
+        
+        lbl_precio = QLabel(f"${precio_float:.2f}") 
         lbl_precio.setFixedWidth(COL_ANCHO_PRECIO)
         lbl_precio.setStyleSheet("font-weight: bold; color: #333;")
         lbl_precio.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -94,9 +113,10 @@ class ProductoAdminItem(QFrame):
         layout_switch.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout_switch.setContentsMargins(0,0,0,0)
 
-        # IMPORTANTE: Guardamos con self para que el controlador lo vea
         self.switch = ToggleSwitch()
         self.switch.setChecked(activo)
+        # CONEXIÓN INTERNA: Al hacer clic, emitimos nuestra señal de cambio
+        self.switch.clicked.connect(lambda: self.status_changed.emit())
         
         layout_switch.addWidget(self.switch)
         layout.addWidget(container_switch)
@@ -109,13 +129,11 @@ class ProductoAdminItem(QFrame):
         layout_actions.setContentsMargins(0,0,0,0)
         layout_actions.setSpacing(15)
 
-        # IMPORTANTE: Guardamos con self.btn_edit
         self.btn_edit = QPushButton("✏️") 
         self.btn_edit.setFixedSize(30, 30)
         self.btn_edit.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_edit.setStyleSheet("QPushButton { border: none; font-size: 18px; } QPushButton:hover { background-color: #F5F5F5; border-radius: 5px; }")
         
-        # IMPORTANTE: Guardamos con self.btn_del
         self.btn_del = QPushButton("🗑️") 
         self.btn_del.setFixedSize(30, 30)
         self.btn_del.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -124,8 +142,62 @@ class ProductoAdminItem(QFrame):
         layout_actions.addWidget(self.btn_edit)
         layout_actions.addWidget(self.btn_del)
         layout.addWidget(container_actions)
+        
+        # ** INICIO DE LA CARGA DE IMAGEN **
+        if self.imagen_url and self.imagen_url.strip() and self.imagen_url != 'None':
+            self.cargar_imagen_desde_url()
+        else:
+            self.imagen_widget.setText("❓")
+            self.imagen_widget.setStyleSheet("background-color: #F0F0F0; border-radius: 8px; font-weight: bold; font-size: 18px; color: #555;")
 
 
+    def cargar_imagen_desde_url(self):
+        """Inicia la descarga asíncrona de la imagen"""
+        self.manager = QNetworkAccessManager(self)
+        self.manager.setProxy(QNetworkProxy(QNetworkProxy.ProxyType.NoProxy))
+        self.manager.finished.connect(self.imagen_cargada)
+        
+        # --- CORRECCIÓN: Manejo de URLs relativas del servidor ---
+        url_final = self.imagen_url
+        if not url_final.startswith("http"):
+            # Si la URL de la API es algo como "/media/foto.jpg", le ponemos el dominio
+            servidor = "http://127.0.0.1:8000" 
+            url_final = f"{servidor}{url_final}" if url_final.startswith("/") else f"{servidor}/{url_final}"
+        
+        url = QUrl(url_final)
+        
+        if not url.isValid():
+            self.imagen_widget.setText("URL ❌")
+            return
+
+        request = QNetworkRequest(url)
+        self.manager.get(request)
+        self.imagen_widget.setText("⏳") 
+        
+    def imagen_cargada(self, reply: QNetworkReply):
+        """Procesa la respuesta de la red y muestra la imagen"""
+        if reply.error() == QNetworkReply.NetworkError.NoError:
+            image_data = reply.readAll()
+            pixmap = QPixmap()
+            if pixmap.loadFromData(image_data):
+                scaled_pixmap = pixmap.scaled(
+                    self.imagen_widget.size(),
+                    Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                    Qt.TransformationMode.SmoothTransformation
+                )
+                self.imagen_widget.setPixmap(scaled_pixmap)
+                self.imagen_widget.setText("")
+                self.imagen_widget.setStyleSheet("background-color: transparent; border: none;") 
+            else:
+                self.imagen_widget.setText("❌ FMT")
+        else:
+            status_code = reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute)
+            self.imagen_widget.setText(f"ERR {status_code or '??'}") 
+            self.imagen_widget.setStyleSheet("background-color: #FFEEEE; border-radius: 8px; font-weight: bold; font-size: 10px; color: #900;")
+            
+        reply.deleteLater() 
+
+# --- RESTO DE LA CLASE VISTAMENU ---
 
 class VistaMenu(VentanaBase):
     def __init__(self, logo_path=None):
@@ -225,16 +297,27 @@ class VistaMenu(VentanaBase):
         self.layout_principal.addSpacing(10)
 
 
-
-    def filtrar_lista(self, texto_busqueda):
-        texto_busqueda = texto_busqueda.lower().strip()
+    def filtrar_lista(self, texto_busqueda=None):
+        # Leemos el buscador
+        texto_real = self.input_buscar.text().lower().strip()
+        
         for i in range(self.layout_items.count()):
             item = self.layout_items.itemAt(i)
             widget = item.widget()
+            
             if widget and isinstance(widget, ProductoAdminItem):
-                if not texto_busqueda or texto_busqueda in widget.nombre_texto.lower():
+                # REGLA DE ORO PARA EL ADMINISTRADOR:
+                # Aquí NO nos importa si el producto está disponible o no.
+                # Solo nos importa si el nombre coincide con la búsqueda.
+                
+                nombre_coincide = not texto_real or texto_real in widget.nombre_texto.lower()
+                
+                if nombre_coincide:
+                    widget.show()
+                    widget.setEnabled(True) # Forzamos que esté activo en la UI
                     widget.setVisible(True)
                 else:
+                    widget.hide()
                     widget.setVisible(False)
 
 

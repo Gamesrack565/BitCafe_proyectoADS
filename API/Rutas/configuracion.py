@@ -1,86 +1,122 @@
-#BITCAFE
-#VERSION 1.0 (Control de Estado de Tienda)
-#By: Angel A. Higuera
+# BITCAFE - VERSION 1.3 (Auto-Reparación de JSON + Persistencia)
+# By: Angel A. Higuera & Gemini Partner
 
-#Librerías y modulos
-#Importa las clases y funciones de FastAPI: APIRouter, HTTPException, status y Depends.
 from fastapi import APIRouter, HTTPException, status, Depends
-#Importa la funcion 'select' de SQLModel.
 from sqlmodel import select
-#Importa la dependencia 'SessionDep' para la sesion de BD.
 from Servicios.base_Datos import SessionDep
-#Importa la funcion para obtener el usuario actual (seguridad).
 from Servicios.seguridad import get_current_user
-#Importa la enumeracion de roles de usuario.
 from Servicios.numeraciones import UserRole
-#Importa el modulo de modelos de la BD (tablas).
 from Modelos import modelos
-#Importa BaseModel de Pydantic para definir esquemas de datos.
 from pydantic import BaseModel
-
+from typing import Dict
+import json
 
 router = APIRouter(prefix="/configuracion", tags=["Configuración del Sistema"])
 
-# Esquema simple para la respuesta/entrada
+# --- ESQUEMAS ---
 class EstadoTienda(BaseModel):
     esta_abierto: bool
     mensaje: str = "La tienda está operando con normalidad."
 
-# --- OBTENER ESTADO (Público o Protegido según prefieras) ---
-# Lo dejamos público para que la App Cliente sepa si mostrar el menú o un aviso de "Cerrado"
+class HorarioDia(BaseModel):
+    inicio: str
+    fin: str
+    cerrado: bool
+
+# ==========================================
+# RUTAS DE ESTADO DE TIENDA (SWITCH MANUAL)
+# ==========================================
 
 @router.get("/estado-tienda", response_model=EstadoTienda)
 def obtener_estado_tienda(session: SessionDep):
-    #Buscamos la configuracion especifica "ESTADO_TIENDA" en la BD.
     config = session.get(modelos.ConfiguracionSistema, "ESTADO_TIENDA")
-    
-    #Si no existe configuracion previa en la BD.
     if not config:
-        #Devuelve True por defecto (asume que la tienda esta ABIERTA).
         return EstadoTienda(esta_abierto=True)
-    
-    #Evalua si el valor guardado es "ABIERTO" para determinar el booleano.
     esta_abierto = (config.valor == "ABIERTO")
-    #Devuelve el objeto con el estado calculado.
     return EstadoTienda(esta_abierto=esta_abierto)
-
-
-# --- CAMBIAR ESTADO (Solo Staff/Admin) ---
 
 @router.post("/cambiar-estado")
 def cambiar_estado_tienda(
-    nuevo_estado: bool, # True = Abierto, False = Cerrado
+    nuevo_estado: bool, 
     session: SessionDep,
     current_user: modelos.Usuario = Depends(get_current_user)
 ):
-    #Verifica si el rol del usuario actual no es STAFF ni ADMIN.
     if current_user.rol not in [UserRole.STAFF, UserRole.ADMIN]:
-        #Lanza un error 403 (Forbidden) si no tiene permisos.
         raise HTTPException(status_code=403, detail="No autorizado")
     
-    #Determina la cadena de texto a guardar basandose en el booleano de entrada.
     valor_str = "ABIERTO" if nuevo_estado else "CERRADO"
-    
-    #Busca si ya existe el registro de configuracion en la BD.
     config = session.get(modelos.ConfiguracionSistema, "ESTADO_TIENDA")
     
-    #Si la configuracion ya existe.
     if config:
-        #Actualiza el valor de la configuracion existente.
         config.valor = valor_str
-    #Si no existe la configuracion.
     else:
-        #Crea una nueva instancia del modelo de configuracion.
         config = modelos.ConfiguracionSistema(clave="ESTADO_TIENDA", valor=valor_str)
-        #Anade el nuevo objeto a la sesion para ser insertado.
-        session.add(config)
-        
-    #Asegura que el objeto este anadido a la sesion (para actualizacion o creacion).
-    session.add(config)
-    #Confirma (guarda) la transaccion en la BD.
-    session.commit()
     
-    #Define el texto de respuesta para el usuario.
+    session.add(config)
+    session.commit()
+    session.refresh(config)
+    
     estado_texto = "ABIERTA" if nuevo_estado else "CERRADA"
-    #Devuelve un diccionario con el mensaje de confirmacion.
     return {"mensaje": f"La tienda ahora está {estado_texto}"}
+
+# ==========================================
+# GESTIÓN DE HORARIOS (CON REPARACIÓN AUTOMÁTICA)
+# ==========================================
+
+@router.get("/horarios")
+def obtener_horarios(session: SessionDep):
+    """Recupera horarios. Si están corruptos, los repara automáticamente."""
+    
+    # Horarios base por defecto
+    horarios_defecto = {
+        "Lunes": {"inicio": "09:00", "fin": "18:00", "cerrado": False},
+        "Martes": {"inicio": "09:00", "fin": "18:00", "cerrado": False},
+        "Miercoles": {"inicio": "09:00", "fin": "18:00", "cerrado": False},
+        "Jueves": {"inicio": "09:00", "fin": "18:00", "cerrado": False},
+        "Viernes": {"inicio": "09:00", "fin": "18:00", "cerrado": False}
+    }
+
+    config = session.get(modelos.ConfiguracionSistema, "HORARIOS_OPERACION")
+    
+    if not config:
+        return horarios_defecto
+
+    try:
+        # Intentamos cargar el JSON de la base de datos
+        return json.loads(config.valor)
+    except Exception as e:
+        # SI FALLA (tu error actual), reseteamos el valor en la BD para arreglarlo
+        print(f"DEBUG: JSON Corrupto detectado. Reparando... {e}")
+        config.valor = json.dumps(horarios_defecto)
+        session.add(config)
+        session.commit()
+        return horarios_defecto
+
+@router.post("/horarios")
+def guardar_horarios(
+    tabla_horarios: Dict[str, HorarioDia], 
+    session: SessionDep,
+    current_user: modelos.Usuario = Depends(get_current_user)
+):
+    """Guarda la tabla de horarios asegurando el formato JSON correcto."""
+    if current_user.rol not in [UserRole.STAFF, UserRole.ADMIN]:
+        raise HTTPException(status_code=403, detail="No autorizado")
+    
+    # Convertimos los objetos Pydantic a diccionarios puros
+    dict_datos = {dia: info.dict() for dia, info in tabla_horarios.items()}
+    datos_json = json.dumps(dict_datos)
+    
+    # Buscamos de forma segura
+    statement = select(modelos.ConfiguracionSistema).where(modelos.ConfiguracionSistema.clave == "HORARIOS_OPERACION")
+    config = session.exec(statement).first()
+    
+    if config:
+        config.valor = datos_json
+    else:
+        config = modelos.ConfiguracionSistema(clave="HORARIOS_OPERACION", valor=datos_json)
+    
+    session.add(config)
+    session.commit()
+    session.refresh(config)
+    
+    return {"mensaje": "Horarios guardados correctamente", "data": dict_datos}

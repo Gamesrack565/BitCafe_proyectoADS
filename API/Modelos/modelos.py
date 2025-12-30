@@ -1,24 +1,18 @@
-#BITCAFE
-#VERSION 1.0
-#By: Angel A. Higuera
+# BITCAFE - VERSION 1.1
+# By: Angel A. Higuera & Gemini Partner
 
-#Modulos y librerias
 from typing import Optional, List
 from sqlmodel import SQLModel, Field, Relationship
 from datetime import datetime
 from decimal import Decimal
-from sqlalchemy import Column, Numeric, TIMESTAMP, String, UniqueConstraint, DATETIME 
+from sqlalchemy import Column, Numeric, TIMESTAMP, String, UniqueConstraint, DATETIME, Text 
 from sqlalchemy.sql import func
 from Servicios.numeraciones import (UserRole, EstadoPedido, MetodoPago, EstadoPago, TipoToken)
 from Esquemas.esquemas_base import (UsuarioBase, CategoriaBase, ProductoBase, CarritoBase, CarritoItemBase, PedidoBase, PedidoItemBase, TokenRecuperacionBase)
 
 """
 Modelos que representan las tablas de la base de datos.
-Estos modelos definen la estructura de las tablas
-y las relaciones entre ellas.
 """
-#No es necesario comentar más, pues es igual a la base de datos.
-
 
 #--- MODELO DE TABLA: Categoria ---
 class Categoria(CategoriaBase, table=True):
@@ -126,8 +120,9 @@ class TokenRecuperacion(TokenRecuperacionBase, table=True):
     usuario: Optional[Usuario] = Relationship(back_populates="tokens")
 
 
-#--- MODELO DE TABLA: ConfiguracionSistema ---
+#--- MODELO DE TABLA: ConfiguracionSistema (CORREGIDO) ---
 class ConfiguracionSistema(SQLModel, table=True):
     __tablename__ = "configuracion_sistema"
     clave: str = Field(primary_key=True, max_length=50)
-    valor: str = Field(max_length=255)
+    # Cambiamos String(255) por Text para que quepan JSONs largos de horarios
+    valor: str = Field(sa_column=Column(Text))
