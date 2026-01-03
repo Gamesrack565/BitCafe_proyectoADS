@@ -59,7 +59,7 @@ class MainApp(QStackedWidget):
             self.vista_portada.mostrar_error("No se encontró el cliente API.")
             return
 
-        usuario = "Angel"
+        usuario = "admin"
         clave = "12345678"
 
         token = api.login(usuario, clave)

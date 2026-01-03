@@ -9,7 +9,7 @@ from datetime import datetime
 
 class APIClient:
     def __init__(self):
-        self.BASE_URL = "http://127.0.0.1:8000"
+        self.BASE_URL = "https://api-test-cy3n.onrender.com"
         self.token = None
         self.session = requests.Session()
         # --- LÓGICA DE BLOQUEO LOCAL ---

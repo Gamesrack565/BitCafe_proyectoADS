@@ -1,59 +1,132 @@
 # BITCAFE - CONTROLADOR AJUSTES
-# VERSION 1.9 (Sincronización Total - Gestión de Sesión)
+# VERSION 2.2 (SIN CERRAR SESIÓN - CLASE INTEGRADA)
 # By: Angel A. Higuera & Gemini Partner
 
-from PyQt6.QtWidgets import QMessageBox, QApplication, QTimeEdit, QDialog, QVBoxLayout, QPushButton
+from PyQt6.QtWidgets import (QMessageBox, QApplication, QTimeEdit, QDialog, 
+                             QVBoxLayout, QPushButton, QFrame, QHBoxLayout, 
+                             QLabel, QGraphicsDropShadowEffect)
 from PyQt6.QtCore import Qt, QTime
+from PyQt6.QtGui import QColor, QCursor
 
+# ============================================================================
+# CLASE DIALOGO EXITO (INTEGRADA AQUÍ PARA EVITAR ERRORES DE IMPORTACIÓN)
+# ============================================================================
+class DialogoExito(QDialog):
+    def __init__(self, mensaje="Cambios guardados correctamente", parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setFixedSize(400, 200) 
+
+        # --- CONTENEDOR PRINCIPAL ---
+        self.container = QFrame(self)
+        self.container.setGeometry(10, 10, 380, 180)
+        self.container.setStyleSheet("""
+            QFrame {
+                background-color: white;
+                border-radius: 12px;
+                border: 1px solid #E0E0E0;
+            }
+        """)
+        
+        # Sombra
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(15)
+        shadow.setColor(QColor(0, 0, 0, 30))
+        self.container.setGraphicsEffect(shadow)
+
+        layout = QVBoxLayout(self.container)
+        layout.setContentsMargins(25, 20, 25, 25)
+
+        # --- BOTÓN CERRAR (X) ---
+        top_layout = QHBoxLayout()
+        top_layout.addStretch()
+        
+        btn_close = QPushButton("✕")
+        btn_close.setFixedSize(30, 30)
+        btn_close.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        
+        # ESTILO ROJO (Aviso)
+        btn_close.setStyleSheet("""
+            QPushButton {
+                color: #D22A00; 
+                font-weight: bold;
+                border: none;
+                background: transparent;
+                font-size: 16px;
+            }
+            QPushButton:hover { color: #FF0000; }
+        """)
+        btn_close.clicked.connect(self.accept) 
+        top_layout.addWidget(btn_close)
+        
+        layout.addLayout(top_layout)
+
+        # --- MENSAJE ---
+        self.lbl_mensaje = QLabel(mensaje)
+        self.lbl_mensaje.setWordWrap(True)
+        
+        # ESTILO ROJO
+        self.lbl_mensaje.setStyleSheet("""
+            color: #D22A00; 
+            font-size: 20px; 
+            font-weight: bold; 
+            border: none;
+        """)
+        self.lbl_mensaje.setAlignment(Qt.AlignmentFlag.AlignCenter) 
+        layout.addWidget(self.lbl_mensaje)
+        
+        layout.addStretch()
+
+        # --- BOTÓN ACEPTAR ---
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch() 
+        
+        self.btn_aceptar = QPushButton("Aceptar")
+        self.btn_aceptar.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.btn_aceptar.setFixedSize(100, 38)
+        
+        # ESTILO ROJO
+        self.btn_aceptar.setStyleSheet("""
+            QPushButton {
+                background-color: #D22A00;
+                color: white;
+                font-weight: 500;
+                font-size: 14px;
+                border-radius: 8px;
+                border: none;
+            }
+            QPushButton:hover { background-color: #B22400; }
+        """)
+        self.btn_aceptar.clicked.connect(self.accept)
+        
+        btn_layout.addWidget(self.btn_aceptar)
+        layout.addLayout(btn_layout)
+
+
+# ============================================================================
+# CONTROLADOR AJUSTES
+# ============================================================================
 class ControladorAjustes:
     def __init__(self, api, vista_ajustes, controlador_pedido=None):
-        """
-        Cerebro de la pantalla de Ajustes.
-        @param api: Instancia del cliente API para comunicación con el servidor.
-        @param vista_ajustes: Instancia de la interfaz de ajustes.
-        @param controlador_pedido: Referencia al controlador de caja para bloqueo inmediato.
-        """
         self.api = api 
         self.vista = vista_ajustes
         self.controlador_pedido = controlador_pedido 
         
-        # 1. Sincronizar el estado real de la tienda al abrir la ventana
+        # 1. Sincronizar datos
         self.cargar_estado_tienda()
-        
-        # 2. Cargar configuración de horarios existentes desde el servidor
         self.cargar_horarios_configurados()
         
-        # 3. Conectar el Switch "Aceptando Pedidos"
+        # 2. Conectar eventos
         self.vista.switch_tienda.clicked.connect(self.gestionar_cambio_tienda)
-        
-        # 4. Conectar botones de horarios (Selector de Hora)
         self.conectar_eventos_horarios()
         
-        # 5. Conectar el botón de Guardar Cambios
+        # 3. Guardar Cambios
         self.vista.btn_guardar.clicked.connect(self.ejecutar_guardado_total)
-
-        # 6. Conectar botón Cerrar Sesión (Cierra el programa)
-        self.vista.btn_desactivar.clicked.connect(self.cerrar_sesion)
-
-    def cerrar_sesion(self):
-        """Cierra la sesión del usuario y finaliza la aplicación con confirmación."""
-        msg = QMessageBox(self.vista)
-        msg.setWindowTitle("Cerrar Sesión")
-        msg.setText("¿Estás seguro de que deseas cerrar sesión y salir del sistema?")
-        msg.setIcon(QMessageBox.Icon.Question)
-        msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         
-        # Traducir botones
-        btn_si = msg.button(QMessageBox.StandardButton.Yes)
-        btn_si.setText("Sí, Salir")
-        btn_no = msg.button(QMessageBox.StandardButton.No)
-        btn_no.setText("Cancelar")
-
-        if msg.exec() == QMessageBox.StandardButton.Yes:
-            QApplication.quit()
+        # (SE ELIMINÓ LA CONEXIÓN AL BOTÓN DESACTIVAR/CERRAR SESIÓN)
 
     def cargar_estado_tienda(self):
-        """Consulta a la API si la tienda está abierta para poner el switch en su lugar."""
         try:
             estado_actual = self.api.obtener_estado_tienda()
             self.vista.switch_tienda.blockSignals(True)
@@ -63,14 +136,12 @@ class ControladorAjustes:
             print(f"Error al cargar estado de tienda: {e}")
 
     def gestionar_cambio_tienda(self):
-        """Se activa al hacer clic en el Switch de la interfaz."""
         nuevo_estado = self.vista.switch_tienda.isChecked()
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         
         try:
             exito = self.api.actualizar_estado_tienda(nuevo_estado)
             if exito:
-                # REFRESCAR CAJA INMEDIATAMENTE PARA BLOQUEO/DESBLOQUEO
                 if self.controlador_pedido:
                     self.controlador_pedido.verificar_estado_tienda_visual()
             else:
@@ -83,16 +154,13 @@ class ControladorAjustes:
             QApplication.restoreOverrideCursor()
 
     def conectar_eventos_horarios(self):
-        """Asigna el selector de hora a cada botón de la cuadrícula."""
         for i in range(len(self.vista.nombres_dias)):
             btn_ini = self.vista.botones_inicio[i]
             btn_fin = self.vista.botones_fin[i]
-            
             btn_ini.clicked.connect(lambda checked, b=btn_ini: self.abrir_selector_hora(b))
             btn_fin.clicked.connect(lambda checked, b=btn_fin: self.abrir_selector_hora(b))
 
     def abrir_selector_hora(self, boton):
-        """Abre un diálogo con QTimeEdit para una selección de hora precisa."""
         dialogo = QDialog(self.vista)
         dialogo.setWindowTitle("Seleccionar Hora")
         layout = QVBoxLayout(dialogo)
@@ -100,7 +168,6 @@ class ControladorAjustes:
         selector = QTimeEdit()
         selector.setDisplayFormat("HH:mm")
         
-        # Cargar la hora que ya tiene el botón
         if ":" in boton.text():
             t = QTime.fromString(boton.text().strip(), "HH:mm")
             if t.isValid():
@@ -116,11 +183,9 @@ class ControladorAjustes:
         if dialogo.exec() == QDialog.DialogCode.Accepted:
             nueva_hora = selector.time().toString("HH:mm")
             boton.setText(nueva_hora)
-            # Feedback visual de cambio
             boton.setStyleSheet("background-color: #D22A00; color: white; border-radius: 12px; font-weight: bold; border: 1px solid #B02200;")
 
     def cargar_horarios_configurados(self):
-        """Refleja los horarios de la BD en los botones de la vista."""
         try:
             horarios = self.api.obtener_horarios()
             if not horarios or "error" in horarios: return
@@ -133,10 +198,7 @@ class ControladorAjustes:
             print(f"Error cargando horarios: {e}")
 
     def ejecutar_guardado_total(self):
-        """Envía la configuración completa al servidor."""
         datos_horarios = {}
-        
-        # 1. Recopilar datos
         for i, dia in enumerate(self.vista.nombres_dias):
             datos_horarios[dia] = {
                 "inicio": self.vista.botones_inicio[i].text(),
@@ -146,19 +208,19 @@ class ControladorAjustes:
         
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            # 2. Guardar Horarios
             exito = self.api.guardar_horarios(datos_horarios)
             
             if exito:
-                # 3. Sincronización inmediata con el buscador de la caja
                 if self.controlador_pedido:
                     self.controlador_pedido.verificar_estado_tienda_visual()
                 
-                QMessageBox.information(self.vista, "Éxito", "Configuración de horarios guardada y aplicada.")
+                # USO DE LA CLASE INTEGRADA (ROJA)
+                dialogo = DialogoExito("Configuración guardada correctamente.", self.vista)
+                dialogo.exec()
+                
             else:
-                QMessageBox.warning(self.vista, "Error", "No se pudo guardar la configuración en el servidor.")
+                QMessageBox.warning(self.vista, "Error", "No se pudo guardar la configuración.")
             
-            # 4. Actualización de perfil
             self.actualizar_perfil()
             
         except Exception as e:
@@ -167,15 +229,16 @@ class ControladorAjustes:
             QApplication.restoreOverrideCursor()
 
     def actualizar_perfil(self):
-        """Maneja la actualización de contraseña si los widgets están presentes."""
         try:
             if hasattr(self.vista, 'inp_pass_nueva'):
                 nueva = self.vista.inp_pass_nueva.text()
                 confirmar = self.vista.inp_pass_confirm.text()
 
                 if nueva and nueva == confirmar:
-                    # Aquí iría la llamada api.actualizar_password(nueva)
-                    QMessageBox.information(self.vista, "Perfil", "Contraseña actualizada correctamente.")
+                    # USO DE LA CLASE INTEGRADA (ROJA)
+                    dialogo = DialogoExito("Contraseña actualizada correctamente.", self.vista)
+                    dialogo.exec()
+                    
                     self.vista.inp_pass_actual.clear()
                     self.vista.inp_pass_nueva.clear()
                     self.vista.inp_pass_confirm.clear()

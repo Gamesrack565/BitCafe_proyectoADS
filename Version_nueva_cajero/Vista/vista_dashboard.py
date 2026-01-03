@@ -1,27 +1,40 @@
-#BITCAFE
-#VERSION 1.5
-#By: Angel A. Higuera
+# BITCAFE - DASHBOARD VIEW V1.6 (ELIPSIS CORREGIDA)
+# By: Angel A. Higuera & Gemini Partner
 
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, 
                              QPushButton, QGraphicsDropShadowEffect, QSizePolicy, QScrollArea)
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QColor, QPainter, QFontMetrics
 
 from .ventana_base import VentanaBase
 
 
 class LabelElipsado(QLabel):
+    """
+    QLabel que corta el texto con (...) dinámicamente.
+    Override de minimumSizeHint para permitir que el layout lo encoja
+    y el precio no se desplace hacia afuera.
+    """
     def __init__(self, texto):
         super().__init__(texto)
         self.texto_real = texto
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        # Permitir que el label se encoja tanto como sea necesario
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.setMinimumWidth(50) 
+
+    def minimumSizeHint(self):
+        # Le dice al layout que este widget puede medir casi nada de ancho
+        return QSize(50, self.fontMetrics().height())
 
     def paintEvent(self, event):
         painter = QPainter(self)
         metrics = self.fontMetrics()
+        # Calculamos el texto con elipsis según el ancho actual real del widget
         texto_cortado = metrics.elidedText(self.texto_real, Qt.TextElideMode.ElideRight, self.width())
+        
         painter.setPen(self.palette().color(self.foregroundRole()))
         painter.setFont(self.font())
+        # Alineación izquierda y centrada verticalmente
         painter.drawText(self.rect(), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, texto_cortado)
 
 
@@ -29,7 +42,6 @@ class MensajeVacioDashboard(QFrame):
     def __init__(self):
         super().__init__()
         self.setFixedHeight(100)
-        # Estilo Blanco con Sombra
         self.setStyleSheet("""
             QFrame {
                 background-color: #FFFFFF;
@@ -38,7 +50,6 @@ class MensajeVacioDashboard(QFrame):
             }
         """)
         
-        # Sombra suave abajo
         sombra = QGraphicsDropShadowEffect()
         sombra.setBlurRadius(20)
         sombra.setColor(QColor(0, 0, 0, 30))
@@ -72,34 +83,39 @@ class TarjetaPedido(QFrame):
         layout.setContentsMargins(14, 8, 14, 8)
         layout.setSpacing(14)
 
+        # 1. Badge "Nuevo"
         lbl_badge = QLabel("Nuevo")
         lbl_badge.setStyleSheet("""
             background-color: #DFF7DF; color: #2E7D32;
             padding: 4px 10px; border-radius: 10px;
-            font-size: 12px; font-weight: 700;
+            font-size: 11px; font-weight: 700;
         """)
-        lbl_badge.setFixedHeight(28)
+        lbl_badge.setFixedSize(65, 26)
         lbl_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
+        # 2. Folio (Ancho fijo pero razonable)
         lbl_folio = QLabel(f"Folio {folio}")
         lbl_folio.setStyleSheet("font-weight: 700; color: #333333;")
-        lbl_folio.setFixedWidth(200) # Ajustado para folios largos
+        lbl_folio.setFixedWidth(160) 
 
+        # 3. Descripción (El que se acorta)
         lbl_desc = LabelElipsado(descripcion)
         lbl_desc.setStyleSheet("color: #666666;") 
         
+        # 4. Precio (Alineado a la derecha)
         lbl_precio = QLabel(f"${precio}")
-        lbl_precio.setStyleSheet("font-weight: 700; color: #333; font-size: 14px;")
-        lbl_precio.setFixedWidth(80)
+        lbl_precio.setStyleSheet("font-weight: 800; color: #000000; font-size: 14px;")
+        lbl_precio.setFixedWidth(100)
         lbl_precio.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
+        # Añadir al layout
         layout.addWidget(lbl_badge)
         layout.addWidget(lbl_folio)
-        layout.addWidget(lbl_desc)
+        # lbl_desc tiene stretch 1 por defecto al ser Ignored/Expanding, ocupará el espacio sobrante
+        layout.addWidget(lbl_desc, 1) 
         layout.addWidget(lbl_precio)
 
 
-# --- Widget Auxiliar: Tarjeta de Estadística ---
 class TarjetaEstadistica(QFrame):
     def __init__(self, titulo, valor_inicial="0"):
         super().__init__()
@@ -137,7 +153,6 @@ class TarjetaEstadistica(QFrame):
         self.lbl_num.setText(str(nuevo_valor))
 
 
-# --- CLASE PRINCIPAL DEL DASHBOARD ---
 class VistaDashboard(VentanaBase):
     def __init__(self, logo_path=None):
         super().__init__(logo_path=logo_path, sidebar_color="#D22A00")
@@ -147,15 +162,17 @@ class VistaDashboard(VentanaBase):
         self.layout_dashboard.setSpacing(18)
         self.contenido_layout.addLayout(self.layout_dashboard)
 
-        # --- SECCIÓN 1: Últimos Pedidos ---
+        # Título sección
         lbl_subtitulo = QLabel("Últimos pedidos")
         lbl_subtitulo.setStyleSheet("font-size: 13px; font-weight: 600; color: #555555;")
         lbl_subtitulo.setContentsMargins(4, 8, 4, 8)
         self.layout_dashboard.addWidget(lbl_subtitulo)
 
+        # Scroll Area Configurada
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setMinimumHeight(250) 
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         
         self.scroll_area.setStyleSheet("""
             QScrollArea { border: none; background: transparent; }
@@ -177,18 +194,14 @@ class VistaDashboard(VentanaBase):
         self.scroll_area.setWidget(self.contenedor_items_pedidos)
         self.layout_dashboard.addWidget(self.scroll_area)
 
-        # --- SECCIÓN 2: Estadísticas ---
-        spacer = QWidget()
-        spacer.setFixedHeight(10)
-        self.layout_dashboard.addWidget(spacer)
-
+        # Estadísticas
         fila_stats = QHBoxLayout()
         fila_stats.setSpacing(36)
         fila_stats.setContentsMargins(30, 10, 30, 10)
 
-        self.card_nuevos = TarjetaEstadistica("Pedidos Nuevos", "0")
-        self.card_preparacion = TarjetaEstadistica("Pedidos en preparación", "0")
-        self.card_ventas = TarjetaEstadistica("Ventas del Día", "0")
+        self.card_nuevos = TarjetaEstadistica("Pedidos Nuevos")
+        self.card_preparacion = TarjetaEstadistica("Pedidos en preparación")
+        self.card_ventas = TarjetaEstadistica("Ventas del Día")
 
         fila_stats.addStretch()
         fila_stats.addWidget(self.card_nuevos)
@@ -198,7 +211,7 @@ class VistaDashboard(VentanaBase):
 
         self.layout_dashboard.addLayout(fila_stats)
 
-        # --- SECCIÓN 3: Botones ---
+        # Botones inferiores
         fila_botones = QHBoxLayout()
         fila_botones.setSpacing(40)
         fila_botones.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -225,27 +238,19 @@ class VistaDashboard(VentanaBase):
         self.layout_dashboard.addLayout(fila_botones)
         self.layout_dashboard.addSpacing(20)
 
-    # --- MÉTODOS PARA EL CONTROLADOR (API) ---
-
     def actualizar_estadisticas(self, nuevos, preparacion, ventas):
         self.card_nuevos.actualizar_valor(nuevos)
         self.card_preparacion.actualizar_valor(preparacion)
-        self.card_ventas.actualizar_valor(ventas)
+        self.card_ventas.actualizar_valor(f"${ventas}")
 
     def actualizar_lista_pedidos(self, lista_datos_pedidos):
-        """
-        Recibe la lista de pedidos 'activos' desde la API.
-        """
-        # 1. Limpiar lista actual
         while self.layout_lista_pedidos.count():
             item = self.layout_lista_pedidos.takeAt(0)
             widget = item.widget()
             if widget:
                 widget.deleteLater()
 
-        # 2. Llenar con datos nuevos
         if not lista_datos_pedidos:
-            # --- CAMBIO: Usamos el widget bonito ---
             msg_vacio = MensajeVacioDashboard()
             self.layout_lista_pedidos.addWidget(msg_vacio)
             return

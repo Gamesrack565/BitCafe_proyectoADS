@@ -1,4 +1,4 @@
-# BITCAFE - VERSION 1.9 (DISEÑO CENTRADO PROFESIONAL - CÓDIGO TOTAL)
+# BITCAFE - VISTA AJUSTES (LIMPIA - SIN BOTÓN CERRAR SESIÓN)
 # By: Angel A. Higuera & Gemini Partner
 
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
@@ -101,8 +101,7 @@ class VistaAjustes(VentanaBase):
 
         self.layout_principal.addWidget(self.frame_horarios, alignment=Qt.AlignmentFlag.AlignHCenter)
 
-        # --- BLOQUE 3: GESTIÓN DE PERFIL (CAMPOS OCULTOS PARA EL CONTROLADOR) ---
-        # El controlador busca inp_pass_nueva e inp_pass_confirm para no fallar
+        # --- BLOQUE 3: GESTIÓN DE PERFIL (CAMPOS OCULTOS) ---
         self.inp_pass_actual = QLineEdit(); self.inp_pass_actual.setPlaceholderText("Pass actual"); self.inp_pass_actual.hide()
         self.inp_pass_nueva = QLineEdit(); self.inp_pass_nueva.setPlaceholderText("Nueva pass"); self.inp_pass_nueva.hide()
         self.inp_pass_confirm = QLineEdit(); self.inp_pass_confirm.setPlaceholderText("Confirmar pass"); self.inp_pass_confirm.hide()
@@ -111,7 +110,7 @@ class VistaAjustes(VentanaBase):
         self.layout_principal.addWidget(self.inp_pass_nueva)
         self.layout_principal.addWidget(self.inp_pass_confirm)
 
-        # --- BLOQUE 4: BOTONES DE ACCIÓN (GARANTIZADOS ABAJO) ---
+        # --- BLOQUE 4: BOTONES DE ACCIÓN ---
         container_btns = QFrame()
         layout_btns = QHBoxLayout(container_btns)
         layout_btns.setSpacing(20)
@@ -128,19 +127,9 @@ class VistaAjustes(VentanaBase):
             QPushButton:hover { background-color: #B02200; }
         """)
 
-        self.btn_desactivar = QPushButton("Cerrar Sesión")
-        self.btn_desactivar.setFixedSize(140, 50)
-        self.btn_desactivar.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_desactivar.setStyleSheet("""
-            QPushButton {
-                background-color: #666; color: white; font-weight: bold;
-                border-radius: 15px; font-size: 14px;
-            }
-            QPushButton:hover { background-color: #444; }
-        """)
+        # [BOTÓN CERRAR SESIÓN ELIMINADO]
 
         layout_btns.addWidget(self.btn_guardar)
-        layout_btns.addWidget(self.btn_desactivar)
         
         self.layout_principal.addWidget(container_btns, alignment=Qt.AlignmentFlag.AlignHCenter)
 
