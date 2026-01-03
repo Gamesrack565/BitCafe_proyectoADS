@@ -1,11 +1,22 @@
-#BITCAFE
-#VERSION 1.0 
-#By: Angel A. Higuera
+# BITCAFE
+# VERSION 1.1 - Soporte para Ejecutable (.exe)
+# By: Angel A. Higuera
 
 import os
+import sys
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QFrame
 from PyQt6.QtCore import Qt, QTimer, QDateTime, QLocale 
 from PyQt6.QtGui import QPixmap, QFont
+
+def resource_path(relative_path):
+    """ Obtiene la ruta absoluta para recursos, compatible con PyInstaller """
+    if not relative_path:
+        return None
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
 
 class VentanaBase(QWidget):
     def __init__(self, logo_path=None, sidebar_color="#D22A00"):
@@ -43,27 +54,29 @@ class VentanaBase(QWidget):
         layout_lateral.setContentsMargins(0, 28, 0, 28)
         layout_lateral.setSpacing(6)
 
-        # --- Logo ---
+        # --- Logo (CON RESOURCE_PATH) ---
         lbl_logo = QLabel()
         lbl_logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        if logo_path and os.path.exists(logo_path):
-            pixmap = QPixmap(logo_path)
+        # Aplicamos resource_path a la ruta que recibimos
+        ruta_final_logo = resource_path(logo_path)
+
+        if ruta_final_logo and os.path.exists(ruta_final_logo):
+            pixmap = QPixmap(ruta_final_logo)
             lbl_logo.setPixmap(pixmap.scaled(84, 84, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
         else:
             lbl_logo.setText("☕")
-            lbl_logo.setStyleSheet("color: white; font-size: 40px;")
+            lbl_logo.setStyleSheet("color: white; font-size: 40px; background: transparent;")
 
         layout_lateral.addWidget(lbl_logo)
 
         # --- Título App ---
         lbl_titulo = QLabel("BitCafe")
-        # Le quitamos el margen inferior grande para pegar el reloj
-        lbl_titulo.setStyleSheet("color: white; font-size: 20px; font-weight: 600; margin-bottom: 5px;") 
+        lbl_titulo.setStyleSheet("color: white; font-size: 20px; font-weight: 600; margin-bottom: 5px; background: transparent;") 
         lbl_titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout_lateral.addWidget(lbl_titulo)
 
-        # --- NUEVO: RELOJ Y FECHA ---
+        # --- Reloj y Fecha ---
         self.lbl_reloj = QLabel("Cargando...")
         self.lbl_reloj.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_reloj.setStyleSheet("""
@@ -71,14 +84,14 @@ class VentanaBase(QWidget):
             font-size: 12px;
             font-weight: bold;
             margin-bottom: 20px;
+            background: transparent;
         """)
         layout_lateral.addWidget(self.lbl_reloj)
 
-        # Iniciamos el Timer
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.actualizar_reloj)
-        self.timer.start(1000) # Actualizar cada 1000ms (1 segundo)
-        self.actualizar_reloj() # Primera llamada inmediata
+        self.timer.start(1000)
+        self.actualizar_reloj()
 
         # --- Botones del Menú ---
         self.botones_menu = {}
@@ -95,9 +108,7 @@ class VentanaBase(QWidget):
 
         self.main_layout.addWidget(self.panel_lateral)
 
-        # ==========================================
-        #           AREA DE CONTENIDO
-        # ==========================================
+        # Area de Contenido
         self.contenido_frame = QFrame()
         self.contenido_frame.setStyleSheet("background-color: #FFFFFF;")
         self.contenido_layout = QVBoxLayout(self.contenido_frame)
@@ -112,16 +123,10 @@ class VentanaBase(QWidget):
         lbl.setStyleSheet("color: black; border-bottom: 1px solid #E6E6E6; padding-bottom: 18px;")
         self.contenido_layout.addWidget(lbl)
 
-    # --- LÓGICA DEL RELOJ ---
     def actualizar_reloj(self):
-        # Obtenemos fecha actual
         ahora = QDateTime.currentDateTime()
-        
-        # Formato: "Vie 21 Nov | 10:30 AM"
-        # Usamos QLocale Spanish para asegurar que salga "Vie" y no "Fri"
         locale = QLocale(QLocale.Language.Spanish, QLocale.Country.Mexico)
         fecha = locale.toString(ahora, "ddd d MMM") 
         hora = locale.toString(ahora, "hh:mm AP")
-        
         texto_final = f"{fecha} | {hora}"
-        self.lbl_reloj.setText(texto_final.upper()) # UPPER para que se vea: VIE 21 NOV
+        self.lbl_reloj.setText(texto_final.upper())
